@@ -1,0 +1,24 @@
+td.md
+
+# Environment
+.env
+
+# Hardhat artifacts
+artifacts/
+cache/
+dist/
+typechain-types/
+
+# Node
+node_modules/
+
+# Coverage
+coverage/
+coverage.json
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
