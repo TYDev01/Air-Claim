@@ -109,6 +109,50 @@ contract CommitRevealRandomness is IRandomnessSource, Ownable {
     }
 
     // -------------------------------------------------------------------------
+    // IRandomnessSource — view helpers
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc IRandomnessSource
+    /// @dev A request is pending when its commitment slot is non-zero AND it has
+    ///      not yet been consumed. This is the condition game contracts should
+    ///      check before allowing a player to submit a bet against a requestId.
+    function isPending(uint256 requestId)
+        external
+        view
+        override
+        returns (bool)
+    {
+        return _commitments[requestId] != bytes32(0) && !_consumed[requestId];
+    }
+
+    /// @inheritdoc IRandomnessSource
+    /// @dev Reverts on an unknown requestId (commitment slot is zero) so callers
+    ///      get an explicit error rather than silently operating on a zero hash.
+    function getCommitment(uint256 requestId)
+        external
+        view
+        override
+        returns (bytes32)
+    {
+        require(_commitments[requestId] != bytes32(0), "CRR: unknown request");
+        return _commitments[requestId];
+    }
+
+    /// @notice Returns whether a request has been consumed (revealed).
+    ///         Complements isPending(): consumed=true means reveal succeeded;
+    ///         consumed=false + commitment=0 means the id was never issued.
+    function isConsumed(uint256 requestId) external view returns (bool) {
+        return _consumed[requestId];
+    }
+
+    /// @notice Returns the next requestId that will be issued by commit().
+    ///         Useful for off-chain tooling to predict the upcoming id before
+    ///         calling commit() in the same transaction batch.
+    function nextRequestId() external view returns (uint256) {
+        return _nextRequestId;
+    }
+
+    // -------------------------------------------------------------------------
     // IRandomnessSource — reveal
     // -------------------------------------------------------------------------
 
