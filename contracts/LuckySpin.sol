@@ -221,6 +221,76 @@ contract LuckySpin is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // Internal — draw and match logic
+    // -------------------------------------------------------------------------
+
+    /// @dev Draws 5 distinct numbers from [1, NUMBER_MAX] using a partial
+    ///      Fisher-Yates shuffle driven by the commit-reveal seed.
+    ///
+    ///      Algorithm:
+    ///        1. Initialise a virtual pool [1 .. NUMBER_MAX] in memory.
+    ///        2. For each of the 5 draw slots:
+    ///             a. Derive a sub-seed by hashing (seed, slotIndex).
+    ///             b. Pick a random index within the remaining pool.
+    ///             c. Record the value at that index as the drawn number.
+    ///             d. Replace that slot with the last element and shrink the pool.
+    ///        Each iteration re-hashes the seed so the draws are independent;
+    ///        the swap-and-shrink guarantees all 5 drawn numbers are distinct.
+    ///
+    ///      Gas note: NUMBER_MAX = 20, so the pool is a 20-element memory array
+    ///      (uint8[20]). Memory allocation is cheap at this size.
+    ///
+    /// @param seed  Final uint256 seed from IRandomnessSource.revealAndConsume().
+    /// @return drawn  Five distinct numbers each in [1, NUMBER_MAX].
+    function _drawNumbers(uint256 seed)
+        internal
+        pure
+        returns (uint8[5] memory drawn)
+    {
+        // Initialise virtual pool [1 .. NUMBER_MAX].
+        uint8[20] memory pool;
+        for (uint8 i = 0; i < NUMBER_MAX; i++) {
+            pool[i] = i + 1;
+        }
+
+        uint256 remaining = NUMBER_MAX;
+
+        for (uint256 slot = 0; slot < PICK_COUNT; slot++) {
+            // Derive an independent index for each slot.
+            uint256 idx = uint256(keccak256(abi.encodePacked(seed, slot))) % remaining;
+
+            drawn[slot] = pool[idx];
+
+            // Swap the picked element with the last element and shrink the pool
+            // so it can never be picked again.
+            pool[idx] = pool[remaining - 1];
+            remaining--;
+        }
+    }
+
+    /// @dev Counts how many of the player's picks appear in the drawn numbers.
+    ///      Order is irrelevant — only set membership matters.
+    ///      O(PICK_COUNT²) = O(25) — constant cost, acceptable for n=5.
+    ///
+    /// @param picks  Player's five chosen numbers (stored in Bet).
+    /// @param drawn  Five numbers produced by _drawNumbers().
+    /// @return count  Number of matching values in [0, 5].
+    function _countMatches(uint8[5] memory picks, uint8[5] memory drawn)
+        internal
+        pure
+        returns (uint8 count)
+    {
+        for (uint256 i = 0; i < PICK_COUNT; i++) {
+            for (uint256 j = 0; j < PICK_COUNT; j++) {
+                if (picks[i] == drawn[j]) {
+                    count++;
+                    break; // each pick can match at most one drawn number
+                }
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Internal — pick validation
     // -------------------------------------------------------------------------
 
