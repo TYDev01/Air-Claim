@@ -217,6 +217,26 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // External — emergency stop (owner only)
+    // -------------------------------------------------------------------------
+
+    /// @notice Pause the contract. Blocks insureFlight, checkFlightDelay, and
+    ///         claimInsurance. Owner-only emergency stop.
+    ///
+    ///         Use when: a vulnerability is discovered, a price-feed anomaly is
+    ///         detected, or a regulatory hold is required. Does NOT freeze
+    ///         withdrawals — the owner can still drain the surplus reserve while
+    ///         paused so funds are not permanently locked.
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @notice Unpause the contract and resume normal operation.
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    // -------------------------------------------------------------------------
     // Internal — price feed
     // -------------------------------------------------------------------------
 
