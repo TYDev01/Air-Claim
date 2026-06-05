@@ -107,4 +107,33 @@ contract CommitRevealRandomness is IRandomnessSource, Ownable {
         require(_operators[msg.sender], "CRR: not operator");
         _;
     }
+
+    // -------------------------------------------------------------------------
+    // IRandomnessSource — commit
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc IRandomnessSource
+    /// @dev Only an authorised operator may commit. The operator MUST call this
+    ///      before the player submits their move to the game contract, so the
+    ///      operator cannot see the player's choice before locking their seed.
+    ///
+    ///      The commitment is keccak256(abi.encodePacked(operatorSeed)).
+    ///      The pre-image (operatorSeed) must be kept secret by the operator
+    ///      until revealAndConsume() is called.
+    ///
+    ///      A zero commitment is rejected — it signals an uninitialised slot
+    ///      and must never be stored as a valid commitment.
+    function commit(bytes32 commitment)
+        external
+        override
+        onlyOperator
+        returns (uint256 requestId)
+    {
+        require(commitment != bytes32(0), "CRR: zero commitment");
+
+        requestId = _nextRequestId++;
+        _commitments[requestId] = commitment;
+
+        emit Committed(requestId, commitment);
+    }
 }
