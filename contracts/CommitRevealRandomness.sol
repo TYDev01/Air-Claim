@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.27;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "./interfaces/IRandomnessSource.sol";
+
+/// @title CommitRevealRandomness
+/// @notice Default implementation of IRandomnessSource using a commit–reveal
+///         scheme. Ensures neither the operator nor the player can unilaterally
+///         control the outcome of a game round.
+///
+/// @dev    Why not VRF or PREVRANDAO?
+///         - Chainlink VRF is not available on Celo.
+///         - PREVRANDAO on Celo (an OP Stack L2) is sourced from L1 and is
+///           constant across multiple L2 blocks, making it exploitable for
+///           staked play.
+///
+///         Commit–reveal flow:
+///           1. Operator calls commit(keccak256(operatorSeed)) BEFORE the
+///              player submits their move. This locks the operator's entropy.
+///           2. Player submits their move and a nonce to the game contract.
+///              The game contract passes userEntropy to revealAndConsume().
+///           3. Operator calls revealAndConsume(requestId, operatorSeed,
+///              userEntropy). The contract verifies the commitment, then
+///              derives the final seed from both inputs combined with
+///              block.number so the seed cannot be predicted at commit time.
+///
+///         Neither party controls the output:
+///           - Operator cannot change the seed after committing.
+///           - Player's move is mixed in via userEntropy so the operator
+///             cannot grind for a favourable seed before the player acts.
+///           - block.number adds an additional unpredictable component.
+///
+///         The contract is intentionally kept behind IRandomnessSource so
+///         game contracts (LuckySpin, BattleShip) hold only an interface
+///         reference — the implementation can be swapped for a third-party
+///         VRF without touching game logic.
+contract CommitRevealRandomness is IRandomnessSource, Ownable {
+
+    // -------------------------------------------------------------------------
+    // Storage
+    // -------------------------------------------------------------------------
+
+    /// @dev Auto-incrementing request counter. Starts at 1; 0 is never issued.
+    uint256 private _nextRequestId;
+
+    /// @dev requestId → commitment (keccak256(operatorSeed)).
+    ///      Zero value means the request does not exist.
+    mapping(uint256 => bytes32) private _commitments;
+
+    /// @dev requestId → true once revealAndConsume has been called successfully.
+    mapping(uint256 => bool) private _consumed;
+
+    /// @dev Addresses authorised to call commit() and revealAndConsume().
+    mapping(address => bool) private _operators;
+
+    // -------------------------------------------------------------------------
+    // Events (beyond those in IRandomnessSource)
+    // -------------------------------------------------------------------------
+
+    event OperatorAdded(address indexed operator);
+    event OperatorRemoved(address indexed operator);
+
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
+
+    /// @param initialOperator  Address granted operator status at deployment.
+    ///                         Typically the backend wallet that manages game rounds.
+    ///                         Can be the deployer; more operators can be added later.
+    constructor(address initialOperator) Ownable(msg.sender) {
+        require(initialOperator != address(0), "CRR: zero operator");
+        _operators[initialOperator] = true;
+        _nextRequestId = 1;
+        emit OperatorAdded(initialOperator);
+    }
+
+    // -------------------------------------------------------------------------
+    // Operator management (owner only)
+    // -------------------------------------------------------------------------
+
+    /// @notice Grant operator status to an address. Operators may commit and reveal.
+    function addOperator(address operator) external onlyOwner {
+        require(operator != address(0), "CRR: zero operator");
+        require(!_operators[operator], "CRR: already operator");
+        _operators[operator] = true;
+        emit OperatorAdded(operator);
+    }
+
+    /// @notice Revoke operator status from an address.
+    function removeOperator(address operator) external onlyOwner {
+        require(_operators[operator], "CRR: not operator");
+        _operators[operator] = false;
+        emit OperatorRemoved(operator);
+    }
+
+    /// @notice Returns whether an address is an authorised operator.
+    function isOperator(address operator) external view returns (bool) {
+        return _operators[operator];
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal modifier
+    // -------------------------------------------------------------------------
+
+    modifier onlyOperator() {
+        require(_operators[msg.sender], "CRR: not operator");
+        _;
+    }
+}
