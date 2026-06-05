@@ -143,6 +143,63 @@ contract BattleShip is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // External — settle bet
+    // -------------------------------------------------------------------------
+
+    /// @notice Settle a pending BattleShip bet by revealing the operator seed.
+    ///
+    ///         Flow:
+    ///           1. Load stored Bet; verify it exists and is unsettled.
+    ///           2. Recompute userEntropy from immutable on-chain Bet data.
+    ///           3. Call randomness.revealAndConsume() — verifies commitment,
+    ///              returns combined seed.
+    ///           4. Resolve drop box: dropBox = seed % BOX_COUNT.
+    ///           5. Mark bet settled (EFFECT before INTERACTION).
+    ///           6. If prediction == dropBox, transfer stake * WIN_MULTIPLIER.
+    ///           7. Emit BattleResult.
+    ///
+    /// @param betId        The id emitted in BattlePlaced.
+    /// @param operatorSeed The operator's secret pre-image committed before play.
+    function settleBet(uint256 betId, bytes32 operatorSeed)
+        external
+        nonReentrant
+    {
+        // ── checks ───────────────────────────────────────────────────────────
+        Bet storage b = _bets[betId];
+        require(b.player != address(0), "BS: unknown bet");
+        require(!b.settled,             "BS: already settled");
+
+        // Recompute userEntropy from locked on-chain data — operator cannot alter it.
+        bytes32 userEntropy = keccak256(
+            abi.encodePacked(b.player, b.prediction, b.stake, betId)
+        );
+
+        // ── reveal ───────────────────────────────────────────────────────────
+        uint256 seed = randomness.revealAndConsume(b.requestId, operatorSeed, userEntropy);
+
+        // ── resolve ──────────────────────────────────────────────────────────
+        // Modulo bias: seed % 16 over a 256-bit uniform value introduces
+        // bias of < 2^(256-4) / 2^256 ≈ 0 — negligible for BOX_COUNT = 16
+        // (an exact power of two), so no rejection sampling is needed.
+        uint8 dropBox = uint8(seed % uint256(BOX_COUNT));
+        bool  won     = (dropBox == b.prediction);
+
+        // ── effects ──────────────────────────────────────────────────────────
+        b.settled = true;
+
+        // ── interactions ─────────────────────────────────────────────────────
+        uint256 payout = won ? b.stake * uint256(WIN_MULTIPLIER) : 0;
+
+        if (payout > 0) {
+            require(address(this).balance >= payout, "BS: house insolvent");
+            (bool ok, ) = b.player.call{value: payout}("");
+            require(ok, "BS: transfer failed");
+        }
+
+        emit BattleResult(betId, b.player, b.prediction, dropBox, won, payout);
+    }
+
+    // -------------------------------------------------------------------------
     // External — place bet
     // -------------------------------------------------------------------------
 
