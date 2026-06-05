@@ -141,4 +141,75 @@ contract BattleShip is Ownable, ReentrancyGuard, Pausable {
     receive() external payable {
         emit HouseFunded(msg.sender, msg.value);
     }
+
+    // -------------------------------------------------------------------------
+    // External — place bet
+    // -------------------------------------------------------------------------
+
+    /// @notice Place a BattleShip bet.
+    ///
+    ///         The operator must call IRandomnessSource.commit() BEFORE this
+    ///         function is called and pass the resulting requestId here. This
+    ///         locks the operator's entropy before seeing the player's prediction.
+    ///
+    ///         userEntropy is derived from the player's on-chain data
+    ///         (address, prediction, stake, betId) so the operator cannot
+    ///         manipulate it at settleBet time.
+    ///
+    /// @param prediction  The box the player predicts the drone drops into [0, 15].
+    /// @param requestId   Pending IRandomnessSource request id from the operator.
+    function placeBet(uint8 prediction, uint256 requestId)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+    {
+        // ── input validation ─────────────────────────────────────────────────
+
+        uint256 stake = msg.value;
+        require(stake > 0,          "BS: zero stake");
+        require(stake <= stakeCap,  "BS: stake exceeds cap");
+        require(prediction < BOX_COUNT, "BS: invalid box");
+
+        require(randomness.isPending(requestId),   "BS: request not pending");
+        require(_requestToBet[requestId] == 0,     "BS: requestId in use");
+
+        // ── house solvency check ─────────────────────────────────────────────
+        // msg.value is already in address(this).balance at this point.
+        // Worst-case payout = stake * WIN_MULTIPLIER (2×).
+        uint256 maxPayout = stake * uint256(WIN_MULTIPLIER);
+        require(address(this).balance >= maxPayout, "BS: house cannot cover payout");
+
+        // ── write bet ────────────────────────────────────────────────────────
+        uint256 betId = _nextBetId++;
+
+        _bets[betId] = Bet({
+            player:     msg.sender,
+            stake:      stake,
+            prediction: prediction,
+            requestId:  requestId,
+            settled:    false
+        });
+
+        _requestToBet[requestId] = betId;
+
+        emit BattlePlaced(betId, msg.sender, stake, prediction, requestId);
+    }
+
+    // -------------------------------------------------------------------------
+    // View — bet helpers
+    // -------------------------------------------------------------------------
+
+    /// @notice Returns the userEntropy for a betId, recomputed from stored data.
+    ///         The operator reads this off-chain before calling settleBet.
+    function userEntropyFor(uint256 betId) external view returns (bytes32) {
+        Bet storage b = _bets[betId];
+        require(b.player != address(0), "BS: unknown bet");
+        return keccak256(abi.encodePacked(b.player, b.prediction, b.stake, betId));
+    }
+
+    /// @notice Returns the betId associated with a requestId, or 0 if none.
+    function betIdForRequest(uint256 requestId) external view returns (uint256) {
+        return _requestToBet[requestId];
+    }
 }
