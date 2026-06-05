@@ -217,6 +217,95 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // External — view helpers
+    // -------------------------------------------------------------------------
+
+    /// @notice Summary struct returned by policyInfo() — avoids a raw storage
+    ///         pointer being exposed and keeps the ABI clean for front-ends.
+    struct PolicyView {
+        uint256      policyId;
+        bytes32      flightId;
+        string       flightNumber;
+        string       departure;
+        string       arrival;
+        uint64       flightDate;
+        bool         claimable;
+        bool         exists;
+        uint256      passengerCount;
+    }
+
+    /// @notice Returns summary metadata for the policy associated with a flightId.
+    ///         Does not include the passenger list — use passengerInfo() for that.
+    /// @param flightId  keccak256(abi.encodePacked(rawFlightIdentifier)).
+    /// @return view_    Populated PolicyView; exists=false if no policy found.
+    function policyInfo(bytes32 flightId)
+        external
+        view
+        returns (PolicyView memory view_)
+    {
+        uint256 policyId = _flightPolicy[flightId];
+        if (policyId == 0) return view_; // zero-value struct, exists=false
+
+        Policy storage p = _policies[policyId];
+        view_ = PolicyView({
+            policyId:       policyId,
+            flightId:       p.flightId,
+            flightNumber:   p.flightNumber,
+            departure:      p.departure,
+            arrival:        p.arrival,
+            flightDate:     p.flightDate,
+            claimable:      p.claimable,
+            exists:         p.exists,
+            passengerCount: p.passengers.length
+        });
+    }
+
+    /// @notice Returns the PassengerInfo record for a specific passenger on a flight.
+    /// @param flightId   keccak256(abi.encodePacked(rawFlightIdentifier)).
+    /// @param passenger  Wallet address to look up.
+    /// @return found       True if the passenger is insured on this flight.
+    /// @return ticketPrice The passenger's insured ticket price in CELO wei.
+    /// @return claimed     Whether this passenger has already claimed.
+    function passengerInfo(bytes32 flightId, address passenger)
+        external
+        view
+        returns (bool found, uint256 ticketPrice, bool claimed)
+    {
+        uint256 policyId = _flightPolicy[flightId];
+        if (policyId == 0) return (false, 0, false);
+
+        Policy storage p = _policies[policyId];
+        for (uint256 i = 0; i < p.passengers.length; i++) {
+            if (p.passengers[i].passenger == passenger) {
+                return (true, p.passengers[i].ticketPrice, p.passengers[i].claimed);
+            }
+        }
+    }
+
+    /// @notice Returns all passenger records for a policy by policyId.
+    ///         Primarily for off-chain tooling and subgraph indexers.
+    /// @param policyId  The policy identifier returned by insureFlight.
+    function passengerList(uint256 policyId)
+        external
+        view
+        returns (PassengerInfo[] memory)
+    {
+        require(_policies[policyId].exists, "IFA: no policy");
+        return _policies[policyId].passengers;
+    }
+
+    /// @notice Returns the policyId for a given flightId, or 0 if none exists.
+    function policyIdFor(bytes32 flightId) external view returns (uint256) {
+        return _flightPolicy[flightId];
+    }
+
+    /// @notice Returns the timestamp of the last checkFlightDelay call for a flight.
+    ///         Use to calculate when the next check is permitted.
+    function lastCheckTimestamp(bytes32 flightId) external view returns (uint256) {
+        return _lastCheckTimestamp[flightId];
+    }
+
+    // -------------------------------------------------------------------------
     // External — emergency stop (owner only)
     // -------------------------------------------------------------------------
 
