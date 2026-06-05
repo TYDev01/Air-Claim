@@ -404,6 +404,99 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // External — claim
+    // -------------------------------------------------------------------------
+
+    /// @notice Claim insurance payout for a delayed or cancelled flight.
+    ///
+    ///         Checks (in order):
+    ///           1. A policy exists for flightId.
+    ///           2. The policy has been marked claimable (delay confirmed).
+    ///           3. msg.sender is an insured passenger on the policy.
+    ///           4. msg.sender has not already claimed.
+    ///
+    ///         Payout = 10 % of the caller's insured ticket price.
+    ///
+    ///         Payment path (checks-effects-interactions strictly observed):
+    ///           - State is updated (claimed flag, reservedForClaims) BEFORE any
+    ///             value transfer to prevent reentrancy.
+    ///           - If the price feed is valid and the contract's stablecoin balance
+    ///             covers the converted amount, pays in stablecoin via SafeERC20.
+    ///           - Otherwise pays native CELO.
+    ///           - On any price-feed failure the contract always falls back to CELO
+    ///             rather than reverting, so claims are never permanently blocked by
+    ///             a stale oracle.
+    ///
+    /// @param flightId  keccak256(abi.encodePacked(rawFlightIdentifier)).
+    function claimInsurance(bytes32 flightId)
+        external
+        whenNotPaused
+        nonReentrant
+    {
+        // ── CHECKS ──────────────────────────────────────────────────────────
+
+        uint256 policyId = _flightPolicy[flightId];
+        require(policyId != 0, "IFA: no policy");
+
+        Policy storage p = _policies[policyId];
+        require(p.exists,    "IFA: no policy");
+        require(p.claimable, "IFA: not claimable");
+
+        // Locate the caller in the passenger list.
+        uint256 passengerIndex = type(uint256).max;
+        for (uint256 i = 0; i < p.passengers.length; i++) {
+            if (p.passengers[i].passenger == msg.sender) {
+                passengerIndex = i;
+                break;
+            }
+        }
+        require(passengerIndex != type(uint256).max, "IFA: not insured");
+
+        PassengerInfo storage pi = p.passengers[passengerIndex];
+        require(!pi.claimed, "IFA: already claimed");
+
+        // Payout amount: 10 % of the passenger's insured ticket price.
+        uint256 payoutCelo = pi.ticketPrice / 10;
+        require(payoutCelo > 0, "IFA: zero payout");
+
+        // ── EFFECTS ─────────────────────────────────────────────────────────
+        // Mark claimed and reduce the reserve BEFORE any external call.
+
+        pi.claimed = true;
+
+        // reservedForClaims was incremented by payoutCelo at insure-time.
+        // Safe: payoutCelo <= reservedForClaims by construction.
+        reservedForClaims -= payoutCelo;
+
+        // ── INTERACTIONS ─────────────────────────────────────────────────────
+
+        // Attempt stablecoin payout first.
+        PriceFeedResult memory pr = _getValidatedCeloPrice();
+        bool paidInStablecoin = false;
+
+        if (pr.valid) {
+            uint256 stablecoinAmount = _celoToStablecoin(payoutCelo, pr);
+
+            if (
+                stablecoinAmount > 0 &&
+                stablecoin.balanceOf(address(this)) >= stablecoinAmount
+            ) {
+                stablecoin.safeTransfer(msg.sender, stablecoinAmount);
+                paidInStablecoin = true;
+            }
+        }
+
+        // Fall back to native CELO if stablecoin path was not taken.
+        if (!paidInStablecoin) {
+            require(address(this).balance >= payoutCelo, "IFA: insufficient CELO reserve");
+            (bool sent, ) = msg.sender.call{value: payoutCelo}("");
+            require(sent, "IFA: CELO transfer failed");
+        }
+
+        emit InsuranceClaimed(policyId, flightId, msg.sender, payoutCelo, paidInStablecoin);
+    }
+
+    // -------------------------------------------------------------------------
     // External — delay confirmation
     // -------------------------------------------------------------------------
 
