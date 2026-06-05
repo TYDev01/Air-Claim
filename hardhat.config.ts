@@ -18,7 +18,12 @@ subtask(TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS).setAction(
   }
 );
 
-const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "0x" + "0".repeat(64);
+// Fall back to Hardhat account #0 dev key so network config initialises for
+// dry-runs and gas estimates even without a real PRIVATE_KEY in .env.
+// This key controls no real funds — it is the public Hardhat test account.
+const PRIVATE_KEY =
+  process.env.PRIVATE_KEY ??
+  "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const CELOSCAN_API_KEY = process.env.CELOSCAN_API_KEY ?? "";
 const CELO_RPC = process.env.CELO_RPC ?? "https://forno.celo.org";
 const ALFAJORES_RPC = process.env.ALFAJORES_RPC ?? "https://alfajores-forno.celo-testnet.org";
