@@ -215,4 +215,116 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
         checkCooldownSeconds = _seconds;
         emit CheckCooldownUpdated(_seconds);
     }
+
+    // -------------------------------------------------------------------------
+    // Internal — price feed
+    // -------------------------------------------------------------------------
+
+    /// @notice Result of a price-feed read attempt.
+    /// @param valid      True only when all safety checks passed.
+    /// @param price      Raw answer from latestRoundData(), denominated in feed units.
+    /// @param feedDecimals Number of decimals the feed uses (read dynamically).
+    struct PriceFeedResult {
+        bool    valid;
+        int256  price;
+        uint8   feedDecimals;
+    }
+
+    /// @dev Reads the Chainlink CELO/USD feed and validates:
+    ///        1. answer > 0 (price must be positive)
+    ///        2. updatedAt != 0 (round must have been populated)
+    ///        3. updatedAt >= block.timestamp - maxStalenessSeconds (freshness)
+    ///        4. answeredInRound >= roundId (round must be complete)
+    ///      Returns valid=false on ANY failure so callers can fall back to
+    ///      native-CELO payout rather than reverting or paying a wrong amount.
+    ///
+    ///      Feed decimals are read via decimals() on every call — never assumed
+    ///      to be 8 or 18 — so the function remains correct if the feed is
+    ///      replaced with one of different precision.
+    ///
+    ///      Celo L2 note: no Chainlink sequencer-uptime feed exists for Celo as
+    ///      of June 2026. Staleness check is therefore the primary freshness guard.
+    function _getValidatedCeloPrice() internal view returns (PriceFeedResult memory result) {
+        // Read decimals first — separate call, isolated try/catch.
+        uint8 feedDecimals;
+        try priceFeed.decimals() returns (uint8 d) {
+            feedDecimals = d;
+        } catch {
+            // If decimals() reverts the feed is unusable.
+            return PriceFeedResult({ valid: false, price: 0, feedDecimals: 0 });
+        }
+
+        // Read the latest round.
+        uint80  roundId;
+        int256  answer;
+        uint256 updatedAt;
+        uint80  answeredInRound;
+        try priceFeed.latestRoundData() returns (
+            uint80  _roundId,
+            int256  _answer,
+            uint256 /* startedAt */,
+            uint256 _updatedAt,
+            uint80  _answeredInRound
+        ) {
+            roundId        = _roundId;
+            answer         = _answer;
+            updatedAt      = _updatedAt;
+            answeredInRound = _answeredInRound;
+        } catch {
+            // Feed call reverted — unusable.
+            return PriceFeedResult({ valid: false, price: 0, feedDecimals: 0 });
+        }
+
+        // Validate answer sign.
+        if (answer <= 0) {
+            return PriceFeedResult({ valid: false, price: 0, feedDecimals: 0 });
+        }
+
+        // Validate round was ever populated.
+        if (updatedAt == 0) {
+            return PriceFeedResult({ valid: false, price: 0, feedDecimals: 0 });
+        }
+
+        // Validate freshness against the configured staleness window.
+        // slither-disable-next-line timestamp
+        if (block.timestamp - updatedAt > maxStalenessSeconds) {
+            return PriceFeedResult({ valid: false, price: 0, feedDecimals: 0 });
+        }
+
+        // Validate round completeness.
+        if (answeredInRound < roundId) {
+            return PriceFeedResult({ valid: false, price: 0, feedDecimals: 0 });
+        }
+
+        return PriceFeedResult({ valid: true, price: answer, feedDecimals: feedDecimals });
+    }
+
+    /// @dev Converts a CELO amount (wei, 18 decimals) to stablecoin units using
+    ///      a validated price feed result.
+    ///
+    ///      Scaling logic:
+    ///        stablecoinAmount = celoWei * price / 10^(18 + feedDecimals - stablecoinDecimals)
+    ///
+    ///      where:
+    ///        - celoWei is in 1e18 units
+    ///        - price   is in feedDecimals units (e.g. 1e8 for 8-decimal feed)
+    ///        - result  is in stablecoinDecimals units
+    ///
+    ///      Returns 0 if the price result is invalid (caller must fall back to CELO).
+    function _celoToStablecoin(uint256 celoWei, PriceFeedResult memory pr)
+        internal
+        view
+        returns (uint256)
+    {
+        if (!pr.valid) return 0;
+
+        // Combined exponent: 18 (CELO decimals) + feedDecimals - stablecoinDecimals
+        // Use uint256 arithmetic; feedDecimals and stablecoinDecimals are both uint8 (max 255).
+        uint256 divisorExp = 18 + uint256(pr.feedDecimals) - uint256(stablecoinDecimals);
+        uint256 divisor    = 10 ** divisorExp;
+
+        // celoWei * price / divisor
+        // price > 0 is guaranteed by the validity check in _getValidatedCeloPrice.
+        return (celoWei * uint256(pr.price)) / divisor;
+    }
 }
