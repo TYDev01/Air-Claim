@@ -284,14 +284,9 @@ contract LuckySpin is Ownable, ReentrancyGuard, Pausable {
         require(address(this).balance >= maxPayout, "LS: house cannot cover payout");
 
         // ── write bet ────────────────────────────────────────────────────────
+        // userEntropy = keccak256(player, picks, stake, betId) is recomputed
+        // in settleBet() from the stored Bet fields — nothing to store here.
         uint256 betId = _nextBetId++;
-
-        // Derive userEntropy from immutable on-chain data so the operator
-        // cannot alter it when calling settleBet(). This binds the player's
-        // picks and stake into the final seed at bet-placement time.
-        bytes32 userEntropy = keccak256(
-            abi.encodePacked(msg.sender, picks, stake, betId)
-        );
 
         _bets[betId] = Bet({
             player:      msg.sender,
