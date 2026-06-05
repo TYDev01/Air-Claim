@@ -1,0 +1,51 @@
+{
+  "name": "airclaim",
+  "version": "1.0.0",
+  "description": "Parametric flight-delay insurance dApp on the Celo network",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:fork": "FORK=true hardhat test",
+    "deploy:alfajores": "hardhat run scripts/deploy.ts --network alfajores",
+    "deploy:celo": "hardhat run scripts/deploy.ts --network celo",
+    "verify:alfajores": "hardhat verify --network alfajores",
+    "verify:celo": "hardhat verify --network celo",
+    "clean": "hardhat clean"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TYDev01/Air-Claim.git"
+  },
+  "keywords": ["celo", "insurance", "defi", "chainlink", "hardhat"],
+  "author": "TYDev01",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/TYDev01/Air-Claim/issues"
+  },
+  "homepage": "https://github.com/TYDev01/Air-Claim#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-ethers": "^3.0.0",
+    "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@typechain/hardhat": "^9.0.0",
+    "@typechain/ethers-v6": "^0.5.0",
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.0",
+    "hardhat": "^2.22.0",
+    "hardhat-gas-reporter": "^1.0.0",
+    "solidity-coverage": "^0.8.0",
+    "ts-node": "^10.9.0",
+    "typechain": "^8.3.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@chainlink/contracts": "^1.2.0",
+    "@openzeppelin/contracts": "^5.0.0",
+    "dotenv": "^16.0.0",
+    "ethers": "^6.0.0"
+  }
+}
