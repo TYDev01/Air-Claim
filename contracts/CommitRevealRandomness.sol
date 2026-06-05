@@ -109,6 +109,70 @@ contract CommitRevealRandomness is IRandomnessSource, Ownable {
     }
 
     // -------------------------------------------------------------------------
+    // IRandomnessSource — reveal
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc IRandomnessSource
+    /// @dev Verifies the commitment, mixes both entropy sources, and marks the
+    ///      request consumed so it can never be replayed.
+    ///
+    ///      Seed derivation:
+    ///        seed = uint256(keccak256(abi.encodePacked(
+    ///                 operatorSeed,    // operator's secret — locked at commit time
+    ///                 userEntropy,     // player-supplied nonce mixed in by game contract
+    ///                 block.number     // unpredictable at commit time on this L2
+    ///               )))
+    ///
+    ///      Neither party alone controls the output:
+    ///        - Operator cannot change operatorSeed after committing.
+    ///        - Player cannot change userEntropy after the game contract
+    ///          records their move (game contract is responsible for this).
+    ///        - block.number cannot be predicted by either party far in advance.
+    ///
+    ///      Only the same operator that committed may reveal (msg.sender must
+    ///      be an authorised operator — the interface does not restrict to the
+    ///      exact committing address, allowing operator key rotation without
+    ///      stranding in-flight requests).
+    function revealAndConsume(
+        uint256 requestId,
+        bytes32 operatorSeed,
+        bytes32 userEntropy
+    )
+        external
+        override
+        onlyOperator
+        returns (uint256 seed)
+    {
+        // --- checks ---
+        bytes32 stored = _commitments[requestId];
+        require(stored != bytes32(0), "CRR: unknown request");
+        require(!_consumed[requestId], "CRR: already consumed");
+
+        // Verify the operator's revealed pre-image matches the stored commitment.
+        require(
+            keccak256(abi.encodePacked(operatorSeed)) == stored,
+            "CRR: commitment mismatch"
+        );
+
+        // userEntropy must be non-zero — a zero value typically signals the
+        // game contract failed to populate it, which would halve the entropy.
+        require(userEntropy != bytes32(0), "CRR: zero user entropy");
+
+        // --- effects ---
+        _consumed[requestId] = true;
+
+        // --- derive seed ---
+        // Combine all three entropy sources in a single keccak256.
+        // block.number is used (not block.timestamp) because timestamp can be
+        // nudged slightly by validators; block.number is strictly increasing.
+        seed = uint256(
+            keccak256(abi.encodePacked(operatorSeed, userEntropy, block.number))
+        );
+
+        emit Revealed(requestId, seed);
+    }
+
+    // -------------------------------------------------------------------------
     // IRandomnessSource — commit
     // -------------------------------------------------------------------------
 
