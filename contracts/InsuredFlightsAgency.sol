@@ -404,6 +404,68 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // External — delay confirmation
+    // -------------------------------------------------------------------------
+
+    /// @notice Reads the flight oracle and, if the delay exceeds the threshold,
+    ///         marks the policy as claimable. Anyone may call this — it is
+    ///         rate-limited per flight to prevent spam and oracle manipulation.
+    ///
+    ///         Conditions that mark a flight claimable:
+    ///           - An active policy exists for the flightId.
+    ///           - The oracle record has been written (updatedAt != 0).
+    ///           - The oracle status is Delayed or Cancelled.
+    ///           - delayMinutes > delayThresholdMinutes.
+    ///
+    ///         The function is idempotent: calling it again on an already-claimable
+    ///         flight is a no-op (does not revert, just returns early).
+    ///
+    /// @param flightId  keccak256(abi.encodePacked(rawFlightIdentifier)).
+    function checkFlightDelay(bytes32 flightId)
+        external
+        whenNotPaused
+        nonReentrant
+    {
+        // --- rate limit ---
+        require(
+            block.timestamp >= _lastCheckTimestamp[flightId] + checkCooldownSeconds,
+            "IFA: check too soon"
+        );
+        _lastCheckTimestamp[flightId] = block.timestamp;
+
+        // --- policy must exist ---
+        uint256 policyId = _flightPolicy[flightId];
+        require(policyId != 0, "IFA: no policy");
+
+        Policy storage p = _policies[policyId];
+        require(p.exists, "IFA: no policy");
+
+        // --- already claimable: no-op ---
+        if (p.claimable) return;
+
+        // --- read oracle ---
+        IFlightOracle.FlightRecord memory record = flightOracle.getFlightRecord(flightId);
+
+        // Oracle has never been written — nothing to confirm yet.
+        if (record.updatedAt == 0) return;
+
+        // Status must be Delayed or Cancelled to trigger a claim.
+        bool statusQualifies = (
+            record.status == IFlightOracle.FlightStatus.Delayed ||
+            record.status == IFlightOracle.FlightStatus.Cancelled
+        );
+        if (!statusQualifies) return;
+
+        // Delay must exceed the configured threshold.
+        if (record.delayMinutes <= delayThresholdMinutes) return;
+
+        // --- mark claimable ---
+        p.claimable = true;
+
+        emit DelayConfirmed(flightId, policyId, record.delayMinutes);
+    }
+
+    // -------------------------------------------------------------------------
     // Internal — price feed (continued)
     // -------------------------------------------------------------------------
 
