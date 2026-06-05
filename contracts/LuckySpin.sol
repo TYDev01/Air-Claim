@@ -151,6 +151,92 @@ contract LuckySpin is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // External — settle bet
+    // -------------------------------------------------------------------------
+
+    /// @notice Settle a pending bet by revealing the operator seed.
+    ///
+    ///         Flow inside this function:
+    ///           1. Load the stored Bet.
+    ///           2. Recompute userEntropy from immutable on-chain data.
+    ///           3. Call randomness.revealAndConsume() — verifies the commitment
+    ///              and returns the combined seed.
+    ///           4. Draw 5 numbers from the seed via _drawNumbers().
+    ///           5. Count matches via _countMatches().
+    ///           6. Mark bet settled (EFFECT before INTERACTION).
+    ///           7. Transfer payout if matches >= 3.
+    ///
+    ///         Anyone may call this after the operator has committed — in practice
+    ///         the operator calls it as part of the off-chain round-close flow.
+    ///
+    /// @param betId        The id returned (via SpinPlaced event) at placeBet time.
+    /// @param operatorSeed The operator's secret pre-image whose keccak256 was
+    ///                     committed before the player placed their bet.
+    function settleBet(uint256 betId, bytes32 operatorSeed)
+        external
+        nonReentrant
+    {
+        // ── checks ───────────────────────────────────────────────────────────
+        Bet storage b = _bets[betId];
+        require(b.player != address(0), "LS: unknown bet");
+        require(!b.settled,             "LS: already settled");
+
+        // Recompute userEntropy from locked on-chain data.
+        // The operator cannot alter this — it is derived from the stored Bet.
+        bytes32 userEntropy = keccak256(
+            abi.encodePacked(b.player, b.picks, b.stake, betId)
+        );
+
+        // ── reveal ───────────────────────────────────────────────────────────
+        // Calls CommitRevealRandomness.revealAndConsume — verifies the
+        // commitment, mixes entropy, marks the request consumed, returns seed.
+        uint256 seed = randomness.revealAndConsume(b.requestId, operatorSeed, userEntropy);
+
+        // ── draw and match ───────────────────────────────────────────────────
+        uint8[5] memory drawn   = _drawNumbers(seed);
+        uint8          matches  = _countMatches(b.picks, drawn);
+
+        // ── effects ──────────────────────────────────────────────────────────
+        b.settled = true;
+
+        // ── payout ───────────────────────────────────────────────────────────
+        uint256 payout = _computePayout(b.stake, matches);
+
+        if (payout > 0) {
+            require(address(this).balance >= payout, "LS: house insolvent");
+            (bool ok, ) = b.player.call{value: payout}("");
+            require(ok, "LS: transfer failed");
+        }
+
+        emit SpinResult(betId, b.player, b.picks, drawn, matches, payout);
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal — payout calculation
+    // -------------------------------------------------------------------------
+
+    /// @dev Returns the payout for a given stake and match count.
+    ///      3 matches → stake × MULTIPLIER_3 (5)
+    ///      4 matches → stake × MULTIPLIER_4 (10)
+    ///      5 matches → stake × MULTIPLIER_5 (25)
+    ///      < 3       → 0
+    ///
+    ///      The house solvency check in placeBet ensures balance >= stake*25
+    ///      at bet time. Between placeBet and settleBet the house balance can
+    ///      only decrease if another bet is settled — the check in settleBet
+    ///      above catches any edge case.
+    function _computePayout(uint256 stake, uint8 matches)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (matches == 5) return stake * uint256(MULTIPLIER_5);
+        if (matches == 4) return stake * uint256(MULTIPLIER_4);
+        if (matches == 3) return stake * uint256(MULTIPLIER_3);
+        return 0;
+    }
+
+    // -------------------------------------------------------------------------
     // External — place bet
     // -------------------------------------------------------------------------
 
