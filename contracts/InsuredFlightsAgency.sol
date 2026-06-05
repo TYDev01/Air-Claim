@@ -299,6 +299,114 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
         return PriceFeedResult({ valid: true, price: answer, feedDecimals: feedDecimals });
     }
 
+    // -------------------------------------------------------------------------
+    // External — policy creation
+    // -------------------------------------------------------------------------
+
+    /// @notice Insure one or more passengers on a single flight.
+    ///
+    ///         Premium per passenger = 10 % of ticketPrice[i] + baseFee.
+    ///         The caller must send exactly the sum of all passenger premiums as
+    ///         msg.value (native CELO). Any excess is not refunded — callers
+    ///         should compute the exact amount off-chain using premiumFor().
+    ///
+    ///         Only one active policy per flightId is allowed. A second call for
+    ///         the same flightId reverts.
+    ///
+    /// @param flightId      keccak256(abi.encodePacked(rawFlightIdentifier)).
+    /// @param flightNumber  Human-readable flight code, e.g. "ET309".
+    /// @param departure     IATA departure airport code, e.g. "ADD".
+    /// @param arrival       IATA arrival airport code, e.g. "LHR".
+    /// @param flightDate    Scheduled departure as a Unix timestamp.
+    /// @param passengers    Array of passenger wallet addresses.
+    /// @param ticketPrices  Parallel array of ticket prices in CELO wei.
+    ///                      Must be the same length as passengers.
+    function insureFlight(
+        bytes32        flightId,
+        string calldata flightNumber,
+        string calldata departure,
+        string calldata arrival,
+        uint64          flightDate,
+        address[] calldata passengers,
+        uint256[] calldata ticketPrices
+    ) external payable whenNotPaused nonReentrant {
+        // --- input validation ---
+        require(flightId != bytes32(0),             "IFA: zero flightId");
+        require(bytes(flightNumber).length > 0,     "IFA: empty flightNumber");
+        require(passengers.length > 0,              "IFA: no passengers");
+        require(passengers.length == ticketPrices.length, "IFA: length mismatch");
+        require(flightDate > block.timestamp,       "IFA: flight date in past");
+        require(_flightPolicy[flightId] == 0,       "IFA: policy exists");
+
+        // --- premium calculation ---
+        uint256 totalPremium = 0;
+        for (uint256 i = 0; i < passengers.length; i++) {
+            require(passengers[i] != address(0), "IFA: zero passenger");
+            require(ticketPrices[i] > 0,         "IFA: zero ticket price");
+            // 10 % of ticket price, rounded down, plus flat base fee
+            totalPremium += (ticketPrices[i] / 10) + baseFee;
+        }
+        require(msg.value == totalPremium, "IFA: wrong premium");
+
+        // --- reserve accounting ---
+        // Worst-case payout = 10 % of each ticket price summed across passengers.
+        // This is added to reservedForClaims so owner withdrawals can never
+        // touch funds owed to active policies.
+        uint256 maxPayout = 0;
+        for (uint256 i = 0; i < passengers.length; i++) {
+            maxPayout += ticketPrices[i] / 10;
+        }
+        reservedForClaims += maxPayout;
+
+        // --- write policy ---
+        uint256 policyId = _nextPolicyId++;
+        Policy storage p = _policies[policyId];
+        p.flightId    = flightId;
+        p.flightNumber = flightNumber;
+        p.departure   = departure;
+        p.arrival     = arrival;
+        p.flightDate  = flightDate;
+        p.claimable   = false;
+        p.exists      = true;
+
+        for (uint256 i = 0; i < passengers.length; i++) {
+            p.passengers.push(PassengerInfo({
+                passenger:   passengers[i],
+                ticketPrice: ticketPrices[i],
+                claimed:     false
+            }));
+        }
+
+        _flightPolicy[flightId] = policyId;
+
+        // --- event ---
+        // Copy to memory array for the event (storage arrays can't be passed directly).
+        address[] memory passengersCopy = new address[](passengers.length);
+        for (uint256 i = 0; i < passengers.length; i++) {
+            passengersCopy[i] = passengers[i];
+        }
+
+        emit FlightInsured(policyId, flightId, flightNumber, passengersCopy, totalPremium);
+    }
+
+    /// @notice Returns the exact premium a caller must send for a given set of
+    ///         ticket prices. Use this off-chain to build the insureFlight call.
+    /// @param ticketPrices  Array of ticket prices in CELO wei.
+    /// @return total        Total msg.value required.
+    function premiumFor(uint256[] calldata ticketPrices)
+        external
+        view
+        returns (uint256 total)
+    {
+        for (uint256 i = 0; i < ticketPrices.length; i++) {
+            total += (ticketPrices[i] / 10) + baseFee;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal — price feed (continued)
+    // -------------------------------------------------------------------------
+
     /// @dev Converts a CELO amount (wei, 18 decimals) to stablecoin units using
     ///      a validated price feed result.
     ///
