@@ -1,8 +1,22 @@
-import { HardhatUserConfig } from "hardhat/config";
+import { HardhatUserConfig, subtask } from "hardhat/config";
+import { TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS } from "hardhat/builtin-tasks/task-names";
 import "@nomicfoundation/hardhat-toolbox";
 import * as dotenv from "dotenv";
+import * as path from "path";
+import * as glob from "glob";
 
 dotenv.config();
+
+// Include test/doubles/*.sol in compilation so TypeChain generates types for
+// test doubles. These files NEVER appear in contracts/ or deploy scripts.
+subtask(TASK_COMPILE_SOLIDITY_GET_SOURCE_PATHS).setAction(
+  async (_args, _hre, runSuper): Promise<string[]> => {
+    const existing: string[] = await runSuper();
+    const doublesPattern = path.join(__dirname, "test", "doubles", "**", "*.sol");
+    const doubles: string[] = glob.sync(doublesPattern);
+    return [...existing, ...doubles];
+  }
+);
 
 const PRIVATE_KEY = process.env.PRIVATE_KEY ?? "0x" + "0".repeat(64);
 const CELOSCAN_API_KEY = process.env.CELOSCAN_API_KEY ?? "";
