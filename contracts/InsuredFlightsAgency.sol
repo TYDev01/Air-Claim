@@ -717,14 +717,16 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
         // Oracle has never been written — nothing to confirm yet.
         if (record.updatedAt == 0) return;
 
-        // Status must be Delayed or Cancelled to trigger a claim.
-        bool statusQualifies = (
-            record.status == IFlightOracle.FlightStatus.Delayed ||
-            record.status == IFlightOracle.FlightStatus.Cancelled
-        );
-        if (!statusQualifies) return;
+        // Cancelled flights are always claimable — skip the delay check.
+        if (record.status == IFlightOracle.FlightStatus.Cancelled) {
+            p.claimable = true;
+            emit DelayConfirmed(flightId, policyId, record.delayMinutes);
+            return;
+        }
 
-        // Delay must exceed the configured threshold.
+        // For any other status, only Delayed qualifies and the delay must
+        // strictly exceed the configured threshold.
+        if (record.status != IFlightOracle.FlightStatus.Delayed) return;
         if (record.delayMinutes <= delayThresholdMinutes) return;
 
         // --- mark claimable ---
