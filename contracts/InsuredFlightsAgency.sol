@@ -497,6 +497,71 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     }
 
     // -------------------------------------------------------------------------
+    // External — reserve management (owner only)
+    // -------------------------------------------------------------------------
+
+    /// @notice Withdraw unallocated CELO from the contract to the owner.
+    ///
+    ///         The contract holds two classes of CELO:
+    ///           1. reservedForClaims — owed to claimable passengers; untouchable.
+    ///           2. Surplus — premiums that exceed worst-case payouts, profit, etc.
+    ///
+    ///         This function only releases surplus. It reverts if the requested
+    ///         amount would reduce the contract balance below reservedForClaims.
+    ///
+    /// @param amount  CELO (wei) to withdraw. Must be <= withdrawableCelo().
+    function withdrawCelo(uint256 amount) external onlyOwner nonReentrant {
+        require(amount > 0, "IFA: zero amount");
+        require(amount <= withdrawableCelo(), "IFA: insufficient surplus");
+
+        (bool sent, ) = owner().call{value: amount}("");
+        require(sent, "IFA: CELO transfer failed");
+
+        emit CeloWithdrawn(owner(), amount);
+    }
+
+    /// @notice Withdraw stablecoin held by the contract to the owner.
+    ///         Stablecoin is held as payout reserve; this releases any surplus
+    ///         beyond the converted value of outstanding CELO claims.
+    ///
+    ///         NOTE: stablecoin reserve is tracked separately from CELO reserve.
+    ///         The owner is responsible for maintaining sufficient stablecoin
+    ///         balance to cover preferred stablecoin payouts; this function does
+    ///         not guard against over-withdrawing the stablecoin side.
+    ///
+    /// @param amount  Stablecoin units to withdraw.
+    function withdrawStablecoin(uint256 amount) external onlyOwner nonReentrant {
+        require(amount > 0, "IFA: zero amount");
+        require(
+            stablecoin.balanceOf(address(this)) >= amount,
+            "IFA: insufficient stablecoin"
+        );
+        stablecoin.safeTransfer(owner(), amount);
+        emit StablecoinWithdrawn(owner(), amount);
+    }
+
+    /// @notice Returns the amount of CELO (wei) the owner may currently withdraw.
+    ///         Equals contract balance minus reservedForClaims.
+    ///         Returns 0 rather than underflowing if the reserve exceeds balance
+    ///         (should not happen in normal operation but guards against edge cases).
+    function withdrawableCelo() public view returns (uint256) {
+        uint256 bal = address(this).balance;
+        if (bal <= reservedForClaims) return 0;
+        return bal - reservedForClaims;
+    }
+
+    /// @notice Allows the contract to receive plain CELO transfers (e.g. owner
+    ///         topping up the CELO payout reserve directly).
+    receive() external payable {}
+
+    // -------------------------------------------------------------------------
+    // Additional events for reserve management
+    // -------------------------------------------------------------------------
+
+    event CeloWithdrawn(address indexed to, uint256 amount);
+    event StablecoinWithdrawn(address indexed to, uint256 amount);
+
+    // -------------------------------------------------------------------------
     // External — delay confirmation
     // -------------------------------------------------------------------------
 
