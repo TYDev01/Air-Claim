@@ -149,4 +149,108 @@ contract LuckySpin is Ownable, ReentrancyGuard, Pausable {
     receive() external payable {
         emit HouseFunded(msg.sender, msg.value);
     }
+
+    // -------------------------------------------------------------------------
+    // External — place bet
+    // -------------------------------------------------------------------------
+
+    /// @notice Place a LuckySpin bet.
+    ///
+    ///         The operator must call IRandomnessSource.commit() BEFORE this
+    ///         function is called and pass the resulting requestId here. This
+    ///         locks the operator's entropy before seeing the player's picks,
+    ///         preventing seed grinding.
+    ///
+    ///         userEntropy is derived deterministically from the bet's on-chain
+    ///         data (player address, picks, stake, betId) and stored in the Bet
+    ///         record. settleBet() later passes this stored value to
+    ///         revealAndConsume() — the operator cannot manipulate it.
+    ///
+    /// @param picks      Five distinct numbers each in [1, 20]. Order does not
+    ///                   matter for matching but must be supplied for entropy.
+    /// @param requestId  Pending IRandomnessSource request id from the operator.
+    function placeBet(uint8[5] calldata picks, uint256 requestId)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+    {
+        // ── input validation ─────────────────────────────────────────────────
+
+        uint256 stake = msg.value;
+        require(stake > 0,       "LS: zero stake");
+        require(stake <= stakeCap, "LS: stake exceeds cap");
+
+        // Validate picks: each in [1, NUMBER_MAX], all distinct.
+        _validatePicks(picks);
+
+        // Request must be pending (committed, not yet consumed).
+        require(randomness.isPending(requestId), "LS: request not pending");
+
+        // Ensure this requestId is not already tied to another bet.
+        require(_requestToBet[requestId] == 0, "LS: requestId in use");
+
+        // ── house solvency check ─────────────────────────────────────────────
+        // msg.value is already included in address(this).balance at this point.
+        // Worst-case payout = stake * MULTIPLIER_5 (25×).
+        // The house must hold at least that amount after receiving the stake.
+        uint256 maxPayout = stake * uint256(MULTIPLIER_5);
+        require(address(this).balance >= maxPayout, "LS: house cannot cover payout");
+
+        // ── write bet ────────────────────────────────────────────────────────
+        uint256 betId = _nextBetId++;
+
+        // Derive userEntropy from immutable on-chain data so the operator
+        // cannot alter it when calling settleBet(). This binds the player's
+        // picks and stake into the final seed at bet-placement time.
+        bytes32 userEntropy = keccak256(
+            abi.encodePacked(msg.sender, picks, stake, betId)
+        );
+
+        _bets[betId] = Bet({
+            player:      msg.sender,
+            stake:       stake,
+            picks:       picks,
+            requestId:   requestId,
+            settled:     false
+        });
+
+        _requestToBet[requestId] = betId;
+
+        emit SpinPlaced(betId, msg.sender, stake, picks, requestId);
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal — pick validation
+    // -------------------------------------------------------------------------
+
+    /// @dev Reverts if any pick is outside [1, NUMBER_MAX] or if any two picks
+    ///      are equal. Uses an O(n²) check which is acceptable for n=5.
+    function _validatePicks(uint8[5] calldata picks) internal pure {
+        for (uint256 i = 0; i < PICK_COUNT; i++) {
+            require(picks[i] >= 1 && picks[i] <= NUMBER_MAX, "LS: pick out of range");
+            for (uint256 j = i + 1; j < PICK_COUNT; j++) {
+                require(picks[i] != picks[j], "LS: duplicate pick");
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // View — bet info
+    // -------------------------------------------------------------------------
+
+    /// @notice Returns the userEntropy that will be passed to revealAndConsume
+    ///         for a given betId. The operator uses this off-chain to prepare
+    ///         the settleBet call.
+    /// @dev    Recomputes from stored Bet data — no extra storage slot needed.
+    function userEntropyFor(uint256 betId) external view returns (bytes32) {
+        Bet storage b = _bets[betId];
+        require(b.player != address(0), "LS: unknown bet");
+        return keccak256(abi.encodePacked(b.player, b.picks, b.stake, betId));
+    }
+
+    /// @notice Returns the betId associated with a requestId, or 0 if none.
+    function betIdForRequest(uint256 requestId) external view returns (uint256) {
+        return _requestToBet[requestId];
+    }
 }
