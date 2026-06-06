@@ -24,7 +24,7 @@
  *   MAINNET_DEPLOY_CONFIRMED  Must be "true" to broadcast on celo mainnet
  */
 
-import { ethers, network, run } from "hardhat";
+import { ethers, network } from "hardhat";
 import * as fs from "fs";
 import * as path from "path";
 import { getNetworkConfig } from "./config/networkConfig";
@@ -75,8 +75,8 @@ async function main() {
   const cfg         = getNetworkConfig(networkName);
   const [deployer]  = await ethers.getSigners();
 
-  const updaterAddress  = process.env.UPDATER_ADDRESS  ?? deployer.address;
-  const operatorAddress = process.env.OPERATOR_ADDRESS ?? deployer.address;
+  const updaterAddress  = process.env.UPDATER_ADDRESS  || deployer.address;
+  const operatorAddress = process.env.OPERATOR_ADDRESS || deployer.address;
 
   // ── mainnet guard ──────────────────────────────────────────────────────────
   const isMainnet = networkName === "celo";
