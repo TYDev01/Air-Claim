@@ -228,8 +228,41 @@ export class PrismaRepository implements IFlightRepository {
     return rows.map(mapFlight);
   }
 
-  async markSubmitted(_flightId: string, _status: SubmittedStatus, _delayMinutes: number, _at: Date): Promise<void> {
-    throw new Error("Not yet implemented — see markSubmitted commit");
+  /**
+   * Record a successfully confirmed oracle_update on the tracked flight.
+   *
+   * Updates:
+   *  - lastSubmittedStatus, lastSubmittedDelayMinutes, lastSubmittedAt
+   *  - isTerminal = true when status is Landed or Cancelled — polling and
+   *    keeping stop automatically on the next scheduler tick
+   *
+   * Called by OracleUpdater after ChainClient.updateFlight() resolves with
+   * a confirmed TxResult. Never called for dry-run submissions.
+   */
+  async markSubmitted(
+    flightId:     string,
+    status:       SubmittedStatus,
+    delayMinutes: number,
+    at:           Date,
+  ): Promise<void> {
+    const isTerminal =
+      status === OnChainFlightStatus.Landed ||
+      status === OnChainFlightStatus.Cancelled;
+
+    await this.db.trackedFlight.update({
+      where: { flightId },
+      data: {
+        lastSubmittedStatus:       toPrismaStatus(status),
+        lastSubmittedDelayMinutes: delayMinutes,
+        lastSubmittedAt:           at,
+        isTerminal,
+      },
+    });
+
+    this.logger.debug(
+      { flightId, status, delayMinutes, isTerminal },
+      "Tracked flight marked submitted",
+    );
   }
 
   async markKeeperCalled(_flightId: string, _at: Date): Promise<void> {
