@@ -27,6 +27,13 @@ import type { FlightTracker } from "../db/FlightTracker.js";
 import type { IFlightRepository, TrackedFlight } from "../interfaces/IFlightRepository.js";
 import type { AppConfig }     from "../config/schema.js";
 import type { Logger }        from "../logger.js";
+import {
+  oracleTickDurationSeconds,
+  keeperTickDurationSeconds,
+  indexerTickDurationSeconds,
+  activeFlightsGauge,
+  indexerLastBlockGauge,
+} from "../metrics/metrics.js";
 
 // ─── Cadence constants ────────────────────────────────────────────────────────
 
@@ -150,15 +157,23 @@ export class Scheduler {
    * reschedules regardless of outcome so a provider outage doesn't freeze it.
    */
   async _oracleTick(): Promise<void> {
-    const start = Date.now();
+    const end = oracleTickDurationSeconds.startTimer();
     try {
       const processed = await this.updater.run();
-      this.logger.info(
-        { processed, durationMs: Date.now() - start },
-        "Oracle tick complete",
-      );
+      const durationMs = Math.round(end() * 1_000);
+      this.logger.info({ processed, durationMs }, "Oracle tick complete");
+
+      // Refresh active-flights gauge after the tick — terminal flights may have
+      // been marked during this run, shrinking the active set.
+      try {
+        const active = await this.repo.listActiveFlights();
+        activeFlightsGauge.set(active.length);
+      } catch {
+        // Non-fatal — gauge staleness is acceptable.
+      }
     } catch (err) {
-      this.logger.error({ err, durationMs: Date.now() - start }, "Oracle tick threw — will reschedule");
+      end(); // always observe, even on error
+      this.logger.error({ err }, "Oracle tick threw — will reschedule");
     }
 
     if (!this.running) return;
@@ -183,15 +198,14 @@ export class Scheduler {
    * so running the keeper more frequently than necessary is safe (no-ops quickly).
    */
   async _keeperTick(): Promise<void> {
-    const start = Date.now();
+    const end = keeperTickDurationSeconds.startTimer();
     try {
       const dispatched = await this.keeper.run();
-      this.logger.info(
-        { dispatched, durationMs: Date.now() - start },
-        "Keeper tick complete",
-      );
+      const durationMs = Math.round(end() * 1_000);
+      this.logger.info({ dispatched, durationMs }, "Keeper tick complete");
     } catch (err) {
-      this.logger.error({ err, durationMs: Date.now() - start }, "Keeper tick threw — will reschedule");
+      end();
+      this.logger.error({ err }, "Keeper tick threw — will reschedule");
     }
 
     if (!this.running) return;
@@ -216,22 +230,27 @@ export class Scheduler {
    * (eth_getLogs) and does not benefit from adaptive pacing.
    */
   async _indexerTick(): Promise<void> {
-    const start = Date.now();
+    const end = indexerTickDurationSeconds.startTimer();
     try {
       const discovered = await this.tracker.sync();
+      const durationMs = Math.round(end() * 1_000);
+
       if (discovered > 0) {
-        this.logger.info(
-          { discovered, durationMs: Date.now() - start },
-          "Indexer tick — new flights discovered",
-        );
+        this.logger.info({ discovered, durationMs }, "Indexer tick — new flights discovered");
       } else {
-        this.logger.debug(
-          { durationMs: Date.now() - start },
-          "Indexer tick — no new flights",
-        );
+        this.logger.debug({ durationMs }, "Indexer tick — no new flights");
+      }
+
+      // Refresh the indexer-last-block gauge after a successful sync.
+      try {
+        const cursor = await this.repo.getIndexerCursor();
+        if (cursor !== null) indexerLastBlockGauge.set(Number(cursor));
+      } catch {
+        // Non-fatal — gauge staleness is acceptable.
       }
     } catch (err) {
-      this.logger.error({ err, durationMs: Date.now() - start }, "Indexer tick threw — cursor not advanced, will retry");
+      end();
+      this.logger.error({ err }, "Indexer tick threw — cursor not advanced, will retry");
     }
 
     if (!this.running) return;
