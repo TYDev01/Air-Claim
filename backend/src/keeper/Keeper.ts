@@ -55,8 +55,74 @@ export class Keeper {
 
   // ── Pipeline methods (implemented in subsequent commits) ──────────────────
 
-  async _processOneFlight(_flight: TrackedFlight): Promise<void> {
-    throw new Error("Not yet implemented — see Keeper._processOneFlight commit");
+  /**
+   * Run the keeper pipeline for a single eligible flight.
+   *
+   * Steps:
+   *  1. Read isPolicyClaimable() on-chain — skip if already open (no gas waste).
+   *  2. Record markKeeperCalled() BEFORE submitting (crash-safe cooldown enforcement).
+   *  3. Create a keeper_check outbox entry (idempotency guard).
+   *  4. Submit chain.checkFlightDelay() and record the tx hash.
+   *  5. Mark outbox confirmed.
+   *  6. On any error in steps 3-5: mark outbox failed + alert.
+   *
+   * DRY_RUN mode: chain.checkFlightDelay() logs the intended call and returns
+   * a synthetic TxResult — no broadcast occurs.
+   */
+  async _processOneFlight(flight: TrackedFlight): Promise<void> {
+    const log = this.logger.child({ flightId: flight.flightId, flightIata: flight.flightIata });
+
+    // ── Step 1: on-chain claimable check ──────────────────────────────────
+    let alreadyClaimable: boolean;
+    try {
+      alreadyClaimable = await this.chain.isPolicyClaimable(flight.flightId as `0x${string}`);
+    } catch (err) {
+      log.warn({ err }, "isPolicyClaimable read failed — skipping flight this tick");
+      return;
+    }
+
+    if (alreadyClaimable) {
+      log.debug("Policy already claimable — skipping keeper call, marking terminal");
+      await this.repo.markTerminal(flight.flightId);
+      return;
+    }
+
+    // ── Step 2: record cooldown timestamp BEFORE submission ───────────────
+    const now = new Date();
+    await this.repo.markKeeperCalled(flight.flightId, now);
+
+    // ── Step 3: enqueue outbox ────────────────────────────────────────────
+    const entry = await this.repo.createOutboxEntry({
+      flightId:             flight.flightId,
+      kind:                 "keeper_check",
+      intendedStatus:       null,
+      intendedDelayMinutes: null,
+    });
+
+    if (!entry) {
+      log.debug("Keeper outbox entry already active — skipping (idempotency)");
+      return;
+    }
+
+    // ── Steps 4-5: submit + confirm ───────────────────────────────────────
+    try {
+      const result = await this.chain.checkFlightDelay(flight.flightId as `0x${string}`);
+
+      await this.repo.markOutboxSubmitted(entry.id, result.txHash);
+      await this.repo.markOutboxConfirmed(entry.id, new Date());
+
+      log.info(
+        { txHash: result.txHash, gasUsed: result.gasUsed.toString() },
+        "checkFlightDelay confirmed on-chain",
+      );
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      await this.repo.markOutboxFailed(entry.id, errMsg);
+      await this.alerter.send(
+        `[AirClaim] Keeper CHECK FAILED for ${flight.flightIata}: ${errMsg.slice(0, 200)}`,
+      );
+      log.error({ err }, "Keeper checkFlightDelay failed — outbox marked failed, alert sent");
+    }
   }
 
   async run(): Promise<number> {
