@@ -69,16 +69,16 @@ const config: HardhatUserConfig = {
     },
   },
   etherscan: {
-    apiKey: {
-      celo: CELOSCAN_API_KEY,
-      alfajores: CELOSCAN_API_KEY,
-    },
+    // Single API key — required by hardhat-verify 2.x / Etherscan v2.
+    // A celoscan.io key works here; the v2 unified endpoint routes by chainId.
+    apiKey: CELOSCAN_API_KEY,
     customChains: [
       {
         network: "celo",
         chainId: 42220,
         urls: {
-          apiURL: "https://api.celoscan.io/api",
+          // Etherscan v2 unified endpoint with chainId parameter.
+          apiURL: "https://api.etherscan.io/v2/api?chainid=42220",
           browserURL: "https://celoscan.io",
         },
       },
@@ -86,7 +86,7 @@ const config: HardhatUserConfig = {
         network: "alfajores",
         chainId: 44787,
         urls: {
-          apiURL: "https://api-alfajores.celoscan.io/api",
+          apiURL: "https://api.etherscan.io/v2/api?chainid=44787",
           browserURL: "https://alfajores.celoscan.io",
         },
       },

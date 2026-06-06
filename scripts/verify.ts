@@ -99,7 +99,7 @@ async function main() {
 
   // ── 2. CommitRevealRandomness ──────────────────────────────────────────────
   log("2 / 5  CommitRevealRandomness");
-  const operatorAddress = process.env.OPERATOR_ADDRESS ?? deployed.deployer;
+  const operatorAddress = process.env.OPERATOR_ADDRESS || deployed.deployer;
   await verifyContract("CommitRevealRandomness", deployed.commitRevealRandomness, [
     operatorAddress,
   ]);
