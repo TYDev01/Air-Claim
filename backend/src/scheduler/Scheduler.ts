@@ -241,8 +241,55 @@ export class Scheduler {
     }, INDEXER_INTERVAL_MS);
   }
 
+  /**
+   * Start all three scheduling loops.
+   *
+   * Called once from main.ts after all dependencies are initialised.
+   * Throws if already running (programming error — not meant to be
+   * called twice).
+   *
+   * Boot sequence:
+   *  1. Set running=true.
+   *  2. Fire the indexer tick immediately (no initial delay) — ensures the
+   *     tracked_flight table is populated before the first oracle tick runs.
+   *  3. Fire the oracle tick after INDEXER_INTERVAL_MS (60 s) — gives the
+   *     indexer one full sweep before the first oracle poll.
+   *  4. Fire the keeper tick after KEEPER_INTERVAL_MS (5 min) — keepers
+   *     are not time-critical at startup; let the oracle stabilise first.
+   *
+   * All three loops are self-rescheduling via setTimeout; start() only
+   * fires the first tick of each.
+   */
   async start(): Promise<void> {
-    throw new Error("Not yet implemented — see Scheduler.start commit");
+    if (this.running) {
+      throw new Error("Scheduler.start() called while already running");
+    }
+
+    this.running = true;
+    this.logger.info("Scheduler starting");
+
+    // Fire the indexer immediately — populate tracked_flight before first oracle tick.
+    this.indexerInFlight = this._indexerTick();
+
+    // Delay the first oracle tick by one indexer interval so new flights are
+    // visible in the DB before OracleUpdater.listActiveFlights() runs.
+    this.oracleTimer = setTimeout(() => {
+      this.oracleInFlight = this._oracleTick();
+    }, INDEXER_INTERVAL_MS);
+
+    // Delay the keeper — no urgency at startup.
+    this.keeperTimer = setTimeout(() => {
+      this.keeperInFlight = this._keeperTick();
+    }, KEEPER_INTERVAL_MS);
+
+    this.logger.info(
+      {
+        oracleDelayMs:  INDEXER_INTERVAL_MS,
+        keeperDelayMs:  KEEPER_INTERVAL_MS,
+        indexerDelayMs: 0,
+      },
+      "Scheduler started — all loops armed",
+    );
   }
 
   async stop(): Promise<void> {
