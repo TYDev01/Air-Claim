@@ -365,6 +365,115 @@ export class ChainClient implements IChainClient {
   }
 
   /**
+   * Submit a pre-encoded contract write and wait for on-chain confirmation.
+   *
+   * Retry loop (up to TX_MAX_ATTEMPTS):
+   *  1. Build EIP-1559 fees (fresh on attempt 0; bumped on retries).
+   *  2. Acquire the next nonce via _nextNonce().
+   *  3. Send the transaction via walletClient.writeContract().
+   *  4. Wait up to TX_TIMEOUT_SECONDS for TX_CONFIRMATIONS blocks.
+   *     - If confirmed: return TxResult.
+   *     - If timeout (stuck): log the old hash, bump fees, resubmit with
+   *       the SAME nonce (replacing the pending tx in the mempool).
+   *  5. On any non-timeout error: call _resetNonce() and rethrow if
+   *     attempts are exhausted.
+   *
+   * @param label     Human-readable label for logs (e.g. "updateFlight ET309").
+   * @param writeFn   Async function that receives { maxFeePerGas, maxPriorityFeePerGas,
+   *                  nonce } and calls walletClient.writeContract(), returning the tx hash.
+   */
+  async _sendWithRetry(
+    label: string,
+    writeFn: (fees: {
+      maxFeePerGas: bigint;
+      maxPriorityFeePerGas: bigint;
+      nonce: number;
+    }) => Promise<Hash>,
+  ): Promise<TxResult> {
+    const { config, publicClient, logger } = this.s;
+    const timeoutMs = config.TX_TIMEOUT_SECONDS * 1_000;
+
+    let prevMaxFeeGwei: bigint | undefined;
+    let currentNonce:   number | undefined;
+    let lastHash:       Hash   | undefined;
+
+    for (let attempt = 0; attempt < config.TX_MAX_ATTEMPTS; attempt++) {
+      const fees = await this._buildEip1559Fees(attempt, prevMaxFeeGwei);
+      prevMaxFeeGwei = fees.maxFeePerGas / 1_000_000_000n; // store as gwei for next bump
+
+      // On a stuck-tx retry we reuse the same nonce to replace the pending tx.
+      // On a fresh attempt (or after a reset) we acquire a new one.
+      if (attempt === 0 || currentNonce === undefined) {
+        currentNonce = await this._nextNonce();
+      }
+
+      let txHash: Hash;
+      try {
+        txHash   = await writeFn({ ...fees, nonce: currentNonce });
+        lastHash = txHash;
+        logger.info({ label, attempt, txHash, nonce: currentNonce }, "TX submitted");
+      } catch (err) {
+        await this._resetNonce();
+        if (attempt >= config.TX_MAX_ATTEMPTS - 1) {
+          throw new Error(`${label}: submission failed after ${attempt + 1} attempts`, { cause: err });
+        }
+        logger.warn({ label, attempt, err }, "TX submission error — retrying");
+        continue;
+      }
+
+      // Wait for confirmation with a timeout.
+      try {
+        const receipt = await Promise.race([
+          publicClient.waitForTransactionReceipt({
+            hash:                txHash,
+            confirmations:       config.TX_CONFIRMATIONS,
+            pollingInterval:     2_000,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("TX_TIMEOUT")), timeoutMs),
+          ),
+        ]);
+
+        if (receipt.status === "reverted") {
+          await this._resetNonce();
+          throw new Error(`${label}: transaction reverted (hash ${txHash})`);
+        }
+
+        logger.info(
+          { label, txHash, blockNumber: String(receipt.blockNumber), gasUsed: String(receipt.gasUsed) },
+          "TX confirmed",
+        );
+
+        return {
+          txHash,
+          blockNumber: receipt.blockNumber,
+          gasUsed:     receipt.gasUsed,
+        };
+      } catch (err) {
+        const isTimeout = err instanceof Error && err.message === "TX_TIMEOUT";
+
+        if (isTimeout && attempt < config.TX_MAX_ATTEMPTS - 1) {
+          logger.warn(
+            { label, attempt, txHash, timeoutSeconds: config.TX_TIMEOUT_SECONDS },
+            "TX stuck — bumping fee and resubmitting with same nonce",
+          );
+          // Keep currentNonce: the bumped tx replaces the stuck pending one.
+          continue;
+        }
+
+        await this._resetNonce();
+        throw new Error(
+          `${label}: failed after ${attempt + 1} attempts. Last hash: ${lastHash ?? "none"}`,
+          { cause: err },
+        );
+      }
+    }
+
+    // Unreachable — loop always throws or returns — but satisfies TypeScript.
+    throw new Error(`${label}: exhausted all ${config.TX_MAX_ATTEMPTS} attempts`);
+  }
+
+  /**
    * Re-sync the nonce counter from the chain.
    * Must be called after any submission error to guard against gaps caused
    * by a reorg, a dropped tx, or an out-of-band transaction from the same key.
