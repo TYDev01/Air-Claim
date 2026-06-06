@@ -265,8 +265,25 @@ export class PrismaRepository implements IFlightRepository {
     );
   }
 
-  async markKeeperCalled(_flightId: string, _at: Date): Promise<void> {
-    throw new Error("Not yet implemented — see markKeeperCalled commit");
+  /**
+   * Record the timestamp of a keeper checkFlightDelay call attempt.
+   *
+   * This timestamp is used by listKeeperEligibleFlights() to enforce the
+   * cooldown window between calls — preventing the keeper from submitting
+   * a checkFlightDelay tx that would revert because the contract's own
+   * CHECK_COOLDOWN_SECONDS has not yet elapsed.
+   *
+   * Called immediately before submitting the keeper tx (not after confirmation)
+   * so that a crash mid-submission does not leave the cooldown unenforced on
+   * restart and cause a duplicate gas-wasting call.
+   */
+  async markKeeperCalled(flightId: string, at: Date): Promise<void> {
+    await this.db.trackedFlight.update({
+      where: { flightId },
+      data:  { keeperLastCalledAt: at },
+    });
+
+    this.logger.debug({ flightId, at }, "Keeper call timestamp recorded");
   }
 
   async markTerminal(_flightId: string): Promise<void> {
