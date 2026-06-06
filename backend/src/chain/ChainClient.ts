@@ -243,7 +243,84 @@ export class ChainClient implements IChainClient {
     throw new Error("Not yet implemented — see checkFlightDelay commit");
   }
 
-  // ── Internal helpers (implemented in subsequent commits) ──────────────────
+  // ── Internal helpers ──────────────────────────────────────────────────────
+
+  /**
+   * Build EIP-1559 fee parameters for a transaction attempt.
+   *
+   * On attempt 0: query the fee history oracle for current base fee + tip.
+   * On attempt N > 0: bump the previous maxFeePerGas by TX_FEE_BUMP_PERCENT
+   *   to replace a stuck pending transaction (EIP-1559 requires ≥ 10 % bump).
+   *
+   * The result is always capped at TX_MAX_FEE_GWEI to prevent runaway fees
+   * from an abnormal fee oracle response.
+   *
+   * @param attempt          Zero-based retry count for this outbox entry.
+   * @param prevMaxFeeGwei   maxFeePerGas (in gwei) from the previous attempt,
+   *                         or undefined on the first attempt.
+   * @returns                { maxFeePerGas, maxPriorityFeePerGas } in wei.
+   */
+  async _buildEip1559Fees(
+    attempt: number,
+    prevMaxFeeGwei?: bigint,
+  ): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
+    const { config, publicClient, logger } = this.s;
+
+    const ceilingWei = parseGwei(String(config.TX_MAX_FEE_GWEI));
+
+    if (attempt > 0 && prevMaxFeeGwei !== undefined) {
+      // Bump the previous fee by TX_FEE_BUMP_PERCENT to replace the stuck tx.
+      const bumpFactor  = BigInt(100 + config.TX_FEE_BUMP_PERCENT);
+      const bumpedWei   = (prevMaxFeeGwei * bumpFactor) / 100n;
+      const maxFeePerGas = bumpedWei > ceilingWei ? ceilingWei : bumpedWei;
+
+      if (bumpedWei > ceilingWei) {
+        logger.warn(
+          { bumpedGwei: formatGwei(bumpedWei), ceilingGwei: config.TX_MAX_FEE_GWEI },
+          "Bumped fee exceeds ceiling — clamping to TX_MAX_FEE_GWEI",
+        );
+      }
+
+      // Keep the priority fee proportional; cap at maxFeePerGas.
+      const maxPriorityFeePerGas = maxFeePerGas / 10n;
+
+      logger.debug(
+        { attempt, maxFeeGwei: formatGwei(maxFeePerGas) },
+        "Built bumped EIP-1559 fees",
+      );
+
+      return { maxFeePerGas, maxPriorityFeePerGas };
+    }
+
+    // First attempt: derive from the fee history oracle.
+    const feeHistory = await publicClient.getFeeHistory({
+      blockCount:       4,
+      rewardPercentiles: [50],
+    });
+
+    // baseFeePerGas of the next block (last entry in the array).
+    const baseFees    = feeHistory.baseFeePerGas ?? [];
+    const latestBase  = baseFees[baseFees.length - 1] ?? 0n;
+
+    // 50th-percentile miner tip from recent blocks.
+    const rewards     = feeHistory.reward ?? [];
+    const tips        = rewards.map(r => r[0] ?? 0n);
+    const medianTip   = tips.length > 0
+      ? tips.reduce((a, b) => a + b, 0n) / BigInt(tips.length)
+      : parseGwei("1"); // 1 gwei floor
+
+    // maxFeePerGas = 2× baseFee + tip (standard heuristic for EIP-1559).
+    const rawMax        = latestBase * 2n + medianTip;
+    const maxFeePerGas  = rawMax > ceilingWei ? ceilingWei : rawMax;
+    const maxPriorityFeePerGas = medianTip > maxFeePerGas ? maxFeePerGas : medianTip;
+
+    logger.debug(
+      { attempt, baseFeeGwei: formatGwei(latestBase), maxFeeGwei: formatGwei(maxFeePerGas) },
+      "Built EIP-1559 fees from fee history",
+    );
+
+    return { maxFeePerGas, maxPriorityFeePerGas };
+  }
 
   /** Exposed for testing — returns internal state reference. @internal */
   _state(): ChainClientState { return this.s; }
