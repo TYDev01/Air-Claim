@@ -228,7 +228,48 @@ export class OracleUpdater {
     }
   }
 
-  async run(): Promise<void> {
-    throw new Error("Not yet implemented — see OracleUpdater.run commit");
+  /**
+   * Process all active tracked flights for this scheduler tick.
+   *
+   * Fetches the non-terminal flight list from the repository, then runs
+   * _processOneFlight() for each with a bounded concurrency of 5 — enough
+   * to keep AviationStack requests in flight without overwhelming the RPC
+   * or exhausting the rate limit budget in a single burst.
+   *
+   * Individual flight errors are isolated inside _processOneFlight() and
+   * never propagate here — a failure on one flight must not skip others.
+   *
+   * @returns Number of flights processed (attempted, not necessarily updated).
+   */
+  async run(): Promise<number> {
+    const flights = await this.repo.listActiveFlights();
+
+    if (flights.length === 0) {
+      this.logger.debug("No active flights to process");
+      return 0;
+    }
+
+    this.logger.info({ count: flights.length }, "OracleUpdater run starting");
+
+    // Process in batches of CONCURRENCY to bound simultaneous HTTP + RPC calls.
+    const CONCURRENCY = 5;
+    for (let i = 0; i < flights.length; i += CONCURRENCY) {
+      const batch = flights.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        batch.map(flight =>
+          this._processOneFlight(flight).catch(err => {
+            // Belt-and-suspenders: _processOneFlight catches its own errors,
+            // but guard here too so a programming mistake doesn't abort the loop.
+            this.logger.error(
+              { err, flightId: flight.flightId },
+              "Unexpected error from _processOneFlight — isolated",
+            );
+          }),
+        ),
+      );
+    }
+
+    this.logger.info({ count: flights.length }, "OracleUpdater run complete");
+    return flights.length;
   }
 }
