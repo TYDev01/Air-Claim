@@ -73,8 +73,60 @@ export class OracleUpdater {
 
   // ── Pipeline methods (implemented in subsequent commits) ──────────────────
 
-  async _shouldSubmit(_flight: TrackedFlight, _newStatus: OnChainFlightStatus, _newDelay: number): Promise<boolean> {
-    throw new Error("Not yet implemented — see _shouldSubmit commit");
+  /**
+   * Determine whether a new oracle update should be submitted.
+   *
+   * Returns false (skip) when:
+   *  - The new status is identical to the last submitted status AND
+   *    the delay minutes have not changed — exact duplicate, no-op.
+   *  - The flight is already terminal (Landed or Cancelled confirmed) —
+   *    the oracle does not need further updates regardless of API data.
+   *  - The new status would be a regression (e.g. Delayed → Scheduled) —
+   *    the contract accepts any update but a regression is likely a data
+   *    glitch; we hold and log a warning rather than writing it.
+   *
+   * Returns true (submit) when:
+   *  - Status has genuinely changed (e.g. Scheduled → Delayed).
+   *  - Status is the same but delayMinutes has increased — the contract
+   *    stores the latest value; updated delay is worth writing.
+   *
+   * Note: this check is advisory. The DB-level idempotency guard in
+   * createOutboxEntry() provides the hard guarantee against double-submission.
+   */
+  _shouldSubmit(
+    flight:    TrackedFlight,
+    newStatus: OnChainFlightStatus,
+    newDelay:  number,
+  ): boolean {
+    const { lastSubmittedStatus, lastSubmittedDelayMinutes, isTerminal } = flight;
+
+    if (isTerminal) {
+      this.logger.debug({ flightId: flight.flightId }, "Skipping — flight is terminal");
+      return false;
+    }
+
+    // Detect regressions: on-chain state should only move forward.
+    // Scheduled(0) → Delayed(1) → Cancelled(2) or Landed(3) is forward.
+    // Any decrease is suspicious.
+    if (newStatus < lastSubmittedStatus) {
+      this.logger.warn(
+        {
+          flightId:  flight.flightId,
+          current:   lastSubmittedStatus,
+          incoming:  newStatus,
+        },
+        "Status regression detected — holding, not submitting",
+      );
+      return false;
+    }
+
+    // Exact duplicate — same status, same delay.
+    if (newStatus === lastSubmittedStatus && newDelay === lastSubmittedDelayMinutes) {
+      this.logger.debug({ flightId: flight.flightId }, "No state change — skipping submission");
+      return false;
+    }
+
+    return true;
   }
 
   async _processOneFlight(_flight: TrackedFlight): Promise<void> {
