@@ -165,8 +165,32 @@ export class ChainClient implements IChainClient {
     return hasRole as boolean;
   }
 
-  async getOracleFlightRecord(_flightId: `0x${string}`): Promise<OracleFlightRecord | null> {
-    throw new Error("Not yet implemented — see getOracleFlightRecord commit");
+  /**
+   * Reads the current FlightRecord from FlightOracle for `flightId`.
+   *
+   * FlightOracle.getFlightRecord returns a struct:
+   *   { status: uint8, delayMinutes: uint32, source: string, updatedAt: uint64 }
+   *
+   * Returns null when the oracle has no record yet (updatedAt == 0 indicates
+   * the slot was never written — the contract initialises storage to zero).
+   */
+  async getOracleFlightRecord(flightId: `0x${string}`): Promise<OracleFlightRecord | null> {
+    const raw = await this.s.publicClient.readContract({
+      address:      this.s.flightOracleAddress,
+      abi:          this.s.flightOracleAbi,
+      functionName: "getFlightRecord",
+      args:         [flightId],
+    }) as { status: number; delayMinutes: number; source: string; updatedAt: bigint };
+
+    // updatedAt == 0n means the mapping slot is uninitialised — no record exists.
+    if (raw.updatedAt === 0n) return null;
+
+    return {
+      status:        raw.status as OnChainFlightStatus,
+      delayMinutes:  Number(raw.delayMinutes),
+      source:        raw.source,
+      updatedAt:     Number(raw.updatedAt),
+    };
   }
 
   async isPolicyClaimable(_flightId: `0x${string}`): Promise<boolean> {
