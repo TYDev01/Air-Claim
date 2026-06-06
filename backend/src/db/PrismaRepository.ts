@@ -461,8 +461,25 @@ export class PrismaRepository implements IFlightRepository {
     this.logger.warn({ outboxId: id, error: error.slice(0, 200) }, "Outbox entry marked failed");
   }
 
+  /**
+   * Returns the last block number fully processed by the FlightInsured event
+   * indexer, or null if no cursor row exists yet (first-ever run).
+   *
+   * The indexer uses this value as the exclusive lower bound for its next
+   * eth_getLogs batch: fromBlock = cursor + 1.
+   *
+   * On null (first run) the indexer falls back to INDEX_FROM_BLOCK from
+   * config — typically the contract deployment block so we don't scan
+   * from genesis unnecessarily.
+   *
+   * The cursor row uses id=1 and is always upserted, never inserted fresh,
+   * so this returns null only before the very first setIndexerCursor() call.
+   */
   async getIndexerCursor(): Promise<bigint | null> {
-    throw new Error("Not yet implemented — see getIndexerCursor commit");
+    const row = await this.db.indexerCursor.findUnique({
+      where: { id: 1 },
+    });
+    return row ? row.lastProcessedBlock : null;
   }
 
   async setIndexerCursor(_blockNumber: bigint): Promise<void> {
