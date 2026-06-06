@@ -144,10 +144,25 @@ export class ChainClient implements IChainClient {
     return client;
   }
 
-  // ── Read methods (implemented in subsequent commits) ──────────────────────
+  // ── Read methods ──────────────────────────────────────────────────────────
 
-  async hasUpdaterRole(_address: Address): Promise<boolean> {
-    throw new Error("Not yet implemented — see hasUpdaterRole commit");
+  /**
+   * Returns true if `address` holds UPDATER_ROLE on FlightOracle.
+   *
+   * UPDATER_ROLE = keccak256("UPDATER_ROLE") — computed locally to avoid
+   * an extra RPC call; the value is a constant in the contract.
+   */
+  async hasUpdaterRole(address: Address): Promise<boolean> {
+    const UPDATER_ROLE = keccak256(toBytes("UPDATER_ROLE"));
+
+    const hasRole = await this.s.publicClient.readContract({
+      address: this.s.flightOracleAddress,
+      abi:     this.s.flightOracleAbi,
+      functionName: "hasRole",
+      args: [UPDATER_ROLE, address],
+    });
+
+    return hasRole as boolean;
   }
 
   async getOracleFlightRecord(_flightId: `0x${string}`): Promise<OracleFlightRecord | null> {
