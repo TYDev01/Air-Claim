@@ -292,7 +292,39 @@ export class Scheduler {
     );
   }
 
+  /**
+   * Gracefully stop all scheduling loops.
+   *
+   * Shutdown sequence:
+   *  1. Set running=false — tick methods will not reschedule after their
+   *     current iteration completes.
+   *  2. Clear all pending timers — cancels any tick that hasn't started yet.
+   *  3. Await all three in-flight promises — waits for any tick currently
+   *     executing (OracleUpdater.run / Keeper.run / FlightTracker.sync) to
+   *     finish before returning.
+   *
+   * After stop() resolves it is safe to close the DB connection and exit.
+   * Calling stop() when not running is a no-op (idempotent).
+   */
   async stop(): Promise<void> {
-    throw new Error("Not yet implemented — see Scheduler.stop commit");
+    if (!this.running) return;
+
+    this.logger.info("Scheduler stopping — draining in-flight ticks");
+    this.running = false;
+
+    // Cancel pending timers before awaiting in-flight work — prevents a new
+    // tick from starting while we wait for the current ones to drain.
+    if (this.oracleTimer  !== null) { clearTimeout(this.oracleTimer);  this.oracleTimer  = null; }
+    if (this.keeperTimer  !== null) { clearTimeout(this.keeperTimer);  this.keeperTimer  = null; }
+    if (this.indexerTimer !== null) { clearTimeout(this.indexerTimer); this.indexerTimer = null; }
+
+    // Wait for all currently-executing ticks to complete.
+    await Promise.allSettled([
+      this.oracleInFlight,
+      this.keeperInFlight,
+      this.indexerInFlight,
+    ]);
+
+    this.logger.info("Scheduler stopped — all ticks drained");
   }
 }
