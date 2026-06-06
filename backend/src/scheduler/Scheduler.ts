@@ -170,8 +170,35 @@ export class Scheduler {
     }, nextMs);
   }
 
+  /**
+   * Run one keeper tick and self-reschedule the next one at a fixed 5-minute interval.
+   *
+   * 1. Calls Keeper.run() — dispatches checkFlightDelay() for all eligible flights.
+   * 2. Logs dispatched count + wall-clock duration.
+   * 3. Errors from Keeper.run() are caught and logged — the loop always reschedules.
+   * 4. Schedules itself again unless stop() has set running=false.
+   *
+   * Interval is fixed (KEEPER_INTERVAL_MS = 5 min) — keeper eligibility is
+   * gated by keeperEligibleAfter and CHECK_COOLDOWN_SECONDS in the repo query,
+   * so running the keeper more frequently than necessary is safe (no-ops quickly).
+   */
   async _keeperTick(): Promise<void> {
-    throw new Error("Not yet implemented — see Scheduler._keeperTick commit");
+    const start = Date.now();
+    try {
+      const dispatched = await this.keeper.run();
+      this.logger.info(
+        { dispatched, durationMs: Date.now() - start },
+        "Keeper tick complete",
+      );
+    } catch (err) {
+      this.logger.error({ err, durationMs: Date.now() - start }, "Keeper tick threw — will reschedule");
+    }
+
+    if (!this.running) return;
+
+    this.keeperTimer = setTimeout(() => {
+      this.keeperInFlight = this._keeperTick();
+    }, KEEPER_INTERVAL_MS);
   }
 
   async _indexerTick(): Promise<void> {
