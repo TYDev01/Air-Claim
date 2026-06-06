@@ -116,9 +116,110 @@ export class FlightTracker {
     return decoded;
   }
 
-  // ── sync (implemented in next commit) ────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────
 
-  async sync(): Promise<void> {
-    throw new Error("Not yet implemented — see FlightTracker.sync commit");
+  /**
+   * Index all new FlightInsured events since the last processed block.
+   *
+   * Called by the Scheduler on each indexer tick (typically every 60 s).
+   * Processes blocks in INDEX_BATCH_SIZE chunks so a single call never
+   * requests more logs than the RPC provider allows in one eth_getLogs call.
+   *
+   * Cursor is advanced per-batch (not once at the end) so a crash mid-run
+   * resumes from the last completed batch rather than re-processing everything.
+   *
+   * For each FlightInsured event:
+   *  - Upserts a TrackedFlight row via repo.upsertTrackedFlight()
+   *  - Sets keeperEligibleAfter = scheduledDeparture + estimated flight
+   *    duration (config.KEEPER_BUFFER_SECONDS used as a conservative estimate
+   *    when actual arrival time is unavailable from the event)
+   *
+   * @returns Number of new FlightInsured events processed in this call.
+   */
+  async sync(): Promise<number> {
+    const latestBlock = await this.publicClient.getBlockNumber();
+    const cursorRaw   = await this.repo.getIndexerCursor();
+
+    // On first run fall back to INDEX_FROM_BLOCK (contract deployment block).
+    const fromBlock = cursorRaw !== null
+      ? cursorRaw + 1n
+      : this.config.INDEX_FROM_BLOCK;
+
+    if (fromBlock > latestBlock) {
+      this.logger.debug(
+        { fromBlock: fromBlock.toString(), latestBlock: latestBlock.toString() },
+        "Indexer already at chain tip — nothing to sync",
+      );
+      return 0;
+    }
+
+    const batchSize   = BigInt(this.config.INDEX_BATCH_SIZE);
+    let   processed   = 0;
+    let   batchStart  = fromBlock;
+
+    while (batchStart <= latestBlock) {
+      const batchEnd = batchStart + batchSize - 1n < latestBlock
+        ? batchStart + batchSize - 1n
+        : latestBlock;
+
+      let events: FlightInsuredArgs[];
+      try {
+        events = await this._fetchNewEvents(batchStart, batchEnd);
+      } catch (err) {
+        this.logger.error(
+          { err, batchStart: batchStart.toString(), batchEnd: batchEnd.toString() },
+          "Failed to fetch events — stopping sync at this batch; will retry next tick",
+        );
+        break; // Advance cursor only for completed batches; retry next tick.
+      }
+
+      for (const args of events) {
+        try {
+          const scheduledDepartureUtc = new Date(Number(args.scheduledDeparture) * 1_000);
+
+          // keeperEligibleAfter: departure + KEEPER_BUFFER_SECONDS as a
+          // conservative stand-in when no arrival time is known from the event.
+          const keeperEligibleAfter = new Date(
+            scheduledDepartureUtc.getTime() + this.config.KEEPER_BUFFER_SECONDS * 1_000,
+          );
+
+          const data: CreateTrackedFlight = {
+            flightId:             args.flightId,
+            flightIata:           args.flightIata.toUpperCase(),
+            flightDate:           scheduledDepartureUtc.toISOString().slice(0, 10),
+            originIata:           (args.origin ?? "").toUpperCase(),
+            destIata:             (args.destination ?? "").toUpperCase(),
+            scheduledDepartureUtc,
+            scheduledArrivalUtc:  null, // not available in the event; updated by oracle later
+            keeperEligibleAfter,
+          };
+
+          await this.repo.upsertTrackedFlight(data);
+          processed++;
+        } catch (err) {
+          // A single bad event must not stop the batch — log and continue.
+          this.logger.error(
+            { err, flightId: args.flightId, flightIata: args.flightIata },
+            "Failed to upsert tracked flight — skipping event",
+          );
+        }
+      }
+
+      // Advance cursor after each completed batch for crash-safe resumption.
+      await this.repo.setIndexerCursor(batchEnd);
+
+      this.logger.debug(
+        { batchStart: batchStart.toString(), batchEnd: batchEnd.toString(), events: events.length },
+        "Indexer batch complete",
+      );
+
+      batchStart = batchEnd + 1n;
+    }
+
+    if (processed > 0) {
+      this.logger.info({ processed }, "FlightTracker sync complete — new flights tracked");
+    }
+
+    return processed;
   }
 }
