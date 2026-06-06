@@ -131,8 +131,6 @@ export class TelegramAlerter implements IAlertSender {
 
   async send(message: string): Promise<void> {
     try {
-      // Token is interpolated here only — never stored in a property that
-      // could appear in a structured log object.
       const url = `${TELEGRAM_API_BASE}/bot${this.token}/sendMessage`;
 
       await alertHttp.post(
@@ -153,4 +151,56 @@ export class TelegramAlerter implements IAlertSender {
       );
     }
   }
+}
+
+// ─── CompositeAlerter ─────────────────────────────────────────────────────────
+
+/**
+ * IAlertSender that fans a single alert out to multiple IAlertSender instances.
+ *
+ * Used in main.ts to combine WebhookAlerter + TelegramAlerter when both are
+ * configured, without the oracle/keeper pipelines knowing about the plurality.
+ *
+ * All inner senders are called concurrently (Promise.allSettled) — a failure
+ * in one sender never blocks or prevents delivery to the others.
+ *
+ * Since each inner sender already never throws, allSettled is a belt-and-
+ * suspenders guard against future implementations that might forget that rule.
+ */
+export class CompositeAlerter implements IAlertSender {
+  private readonly senders: IAlertSender[];
+
+  constructor(senders: IAlertSender[]) {
+    this.senders = senders;
+  }
+
+  async send(message: string): Promise<void> {
+    await Promise.allSettled(this.senders.map(s => s.send(message)));
+  }
+}
+
+// ─── Factory ──────────────────────────────────────────────────────────────────
+
+/**
+ * Build the appropriate IAlertSender from config at boot time.
+ *
+ * - Both ALERT_WEBHOOK_URL and TELEGRAM creds set → CompositeAlerter
+ * - Only ALERT_WEBHOOK_URL set                    → WebhookAlerter
+ * - Only TELEGRAM creds set                       → TelegramAlerter
+ * - Neither set                                   → NoopAlerter
+ */
+export function buildAlerter(config: AppConfig, logger: Logger): IAlertSender {
+  const senders: IAlertSender[] = [];
+
+  if (config.ALERT_WEBHOOK_URL) {
+    senders.push(new WebhookAlerter(config, logger));
+  }
+
+  if (config.TELEGRAM_BOT_TOKEN && config.TELEGRAM_CHAT_ID) {
+    senders.push(new TelegramAlerter(config, logger));
+  }
+
+  if (senders.length === 0) return new NoopAlerter();
+  if (senders.length === 1) return senders[0]!;
+  return new CompositeAlerter(senders);
 }
