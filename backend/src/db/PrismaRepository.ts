@@ -309,8 +309,56 @@ export class PrismaRepository implements IFlightRepository {
     this.logger.info({ flightId }, "Flight marked terminal — polling and keeping stopped");
   }
 
-  async createOutboxEntry(_data: CreateOutboxEntry): Promise<OutboxEntry | null> {
-    throw new Error("Not yet implemented — see createOutboxEntry commit");
+  /**
+   * Create a new pending outbox entry for an intended on-chain write.
+   *
+   * Idempotency guard: returns null (no-op) if a row already exists for
+   * this (flightId, kind) pair with status pending or submitted. This
+   * prevents double-enqueuing the same write when:
+   *  - The OracleUpdater is called twice before the first submission completes.
+   *  - The service restarts and re-processes the same polling tick.
+   *  - A reorged block is re-indexed and triggers a duplicate event.
+   *
+   * A failed entry does NOT block a new one — the previous attempt is done
+   * and a fresh submission is legitimate.
+   *
+   * @returns The created OutboxEntry, or null if an active entry already exists.
+   */
+  async createOutboxEntry(data: CreateOutboxEntry): Promise<OutboxEntry | null> {
+    // Check for an existing pending or submitted entry for this flight+kind.
+    const existing = await this.db.txOutbox.findFirst({
+      where: {
+        flightId: data.flightId,
+        kind:     data.kind,
+        status:   { in: ["pending", "submitted"] },
+      },
+    });
+
+    if (existing) {
+      this.logger.debug(
+        { flightId: data.flightId, kind: data.kind, existingId: existing.id, existingStatus: existing.status },
+        "Outbox entry already active — skipping duplicate creation",
+      );
+      return null;
+    }
+
+    const row = await this.db.txOutbox.create({
+      data: {
+        flightId:            data.flightId,
+        kind:                data.kind,
+        intendedStatus:      data.intendedStatus !== null && data.intendedStatus !== undefined
+          ? toPrismaStatus(data.intendedStatus)
+          : null,
+        intendedDelayMinutes: data.intendedDelayMinutes ?? null,
+      },
+    });
+
+    this.logger.debug(
+      { flightId: data.flightId, kind: data.kind, outboxId: row.id },
+      "Outbox entry created",
+    );
+
+    return mapOutbox(row);
   }
 
   async listPendingOutboxEntries(): Promise<OutboxEntry[]> {
