@@ -482,8 +482,30 @@ export class PrismaRepository implements IFlightRepository {
     return row ? row.lastProcessedBlock : null;
   }
 
-  async setIndexerCursor(_blockNumber: bigint): Promise<void> {
-    throw new Error("Not yet implemented — see setIndexerCursor commit");
+  /**
+   * Advance the event indexer cursor to `blockNumber`.
+   *
+   * Uses an upsert on id=1 so the first call creates the row and all
+   * subsequent calls update it — no separate initialisation step needed.
+   *
+   * Called by FlightTracker after each successfully processed batch of
+   * blocks. On restart, getIndexerCursor() returns this value and the
+   * indexer resumes from blockNumber + 1, never re-processing confirmed
+   * blocks or missing blocks between runs.
+   *
+   * Only advance the cursor AFTER the batch has been fully processed and
+   * all upsertTrackedFlight() calls have completed — if the process crashes
+   * mid-batch, the batch is safely re-processed on restart (events are
+   * idempotent via upsertTrackedFlight's conflict handling).
+   */
+  async setIndexerCursor(blockNumber: bigint): Promise<void> {
+    await this.db.indexerCursor.upsert({
+      where:  { id: 1 },
+      create: { id: 1, lastProcessedBlock: blockNumber },
+      update: { lastProcessedBlock: blockNumber },
+    });
+
+    this.logger.debug({ blockNumber: blockNumber.toString() }, "Indexer cursor advanced");
   }
 
   // ── Internal helpers exposed for testing ──────────────────────────────────
