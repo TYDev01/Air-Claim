@@ -193,8 +193,26 @@ export class ChainClient implements IChainClient {
     };
   }
 
-  async isPolicyClaimable(_flightId: `0x${string}`): Promise<boolean> {
-    throw new Error("Not yet implemented — see isPolicyClaimable commit");
+  /**
+   * Returns true if the IFA policy for `flightId` is already claimable.
+   *
+   * Calls InsuredFlightsAgency.policyInfo(flightId) which returns a
+   * PolicyView struct. We only need the `claimable` boolean field —
+   * if true the keeper can skip this flight (claim window already open).
+   *
+   * Returns false both when the policy is not yet claimable AND when no
+   * policy exists for the flight (flightId unknown to IFA). The keeper
+   * guards against the latter via the tracked_flight table.
+   */
+  async isPolicyClaimable(flightId: `0x${string}`): Promise<boolean> {
+    const raw = await this.s.publicClient.readContract({
+      address:      this.s.ifaAddress,
+      abi:          this.s.insuredFlightsAgencyAbi,
+      functionName: "policyInfo",
+      args:         [flightId],
+    }) as { claimable: boolean; claimed: boolean };
+
+    return raw.claimable;
   }
 
   async getUpdaterBalance(): Promise<bigint> {
