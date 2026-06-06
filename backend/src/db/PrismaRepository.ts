@@ -132,8 +132,38 @@ export class PrismaRepository implements IFlightRepository {
 
   // ── IFlightRepository methods (implemented in subsequent commits) ──────────
 
-  async upsertTrackedFlight(_data: CreateTrackedFlight): Promise<TrackedFlight> {
-    throw new Error("Not yet implemented — see upsertTrackedFlight commit");
+  /**
+   * Insert a new tracked flight or update the scheduling fields if a row for
+   * this flightId already exists.
+   *
+   * The upsert key is flightId (unique). On conflict, only non-status fields
+   * are updated — lastSubmittedStatus and isTerminal are never overwritten by
+   * a re-index of the same event (idempotent re-processing of reorged blocks).
+   */
+  async upsertTrackedFlight(data: CreateTrackedFlight): Promise<TrackedFlight> {
+    const row = await this.db.trackedFlight.upsert({
+      where:  { flightId: data.flightId },
+      create: {
+        flightId:             data.flightId,
+        flightIata:           data.flightIata,
+        flightDate:           data.flightDate,
+        originIata:           data.originIata,
+        destIata:             data.destIata,
+        scheduledDepartureUtc: data.scheduledDepartureUtc,
+        scheduledArrivalUtc:  data.scheduledArrivalUtc ?? null,
+        keeperEligibleAfter:  data.keeperEligibleAfter ?? null,
+      },
+      update: {
+        // Refresh scheduling fields in case the event is re-processed after
+        // a reorg with updated times; never touch status or terminal flag.
+        scheduledDepartureUtc: data.scheduledDepartureUtc,
+        scheduledArrivalUtc:   data.scheduledArrivalUtc ?? null,
+        keeperEligibleAfter:   data.keeperEligibleAfter ?? null,
+      },
+    });
+
+    this.logger.debug({ flightId: data.flightId }, "Tracked flight upserted");
+    return mapFlight(row);
   }
 
   async getTrackedFlight(_flightId: string): Promise<TrackedFlight | null> {
