@@ -138,8 +138,36 @@ export class Scheduler {
 
   // ── Tick handlers (implemented in subsequent commits) ─────────────────────
 
+  /**
+   * Run one oracle tick and self-reschedule the next one.
+   *
+   * 1. Calls OracleUpdater.run() — processes all active flights.
+   * 2. Computes the next delay via _computeOracleInterval() based on current
+   *    flight states after the run (interval shrinks as departure approaches).
+   * 3. Schedules itself again unless stop() has set running=false.
+   *
+   * Errors from OracleUpdater.run() are caught and logged — the loop always
+   * reschedules regardless of outcome so a provider outage doesn't freeze it.
+   */
   async _oracleTick(): Promise<void> {
-    throw new Error("Not yet implemented — see Scheduler._oracleTick commit");
+    const start = Date.now();
+    try {
+      const processed = await this.updater.run();
+      this.logger.info(
+        { processed, durationMs: Date.now() - start },
+        "Oracle tick complete",
+      );
+    } catch (err) {
+      this.logger.error({ err, durationMs: Date.now() - start }, "Oracle tick threw — will reschedule");
+    }
+
+    if (!this.running) return;
+
+    const nextMs = await this._computeOracleInterval();
+    this.logger.debug({ nextMs }, "Oracle next tick scheduled");
+    this.oracleTimer = setTimeout(() => {
+      this.oracleInFlight = this._oracleTick();
+    }, nextMs);
   }
 
   async _keeperTick(): Promise<void> {
