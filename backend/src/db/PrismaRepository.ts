@@ -432,8 +432,33 @@ export class PrismaRepository implements IFlightRepository {
     this.logger.debug({ outboxId: id, confirmedAt: at }, "Outbox entry confirmed");
   }
 
-  async markOutboxFailed(_id: string, _error: string): Promise<void> {
-    throw new Error("Not yet implemented — see markOutboxFailed commit");
+  /**
+   * Transition an outbox entry to failed and record the last error reason.
+   *
+   * Called by OracleUpdater / Keeper when _sendWithRetry() throws after
+   * exhausting all TX_MAX_ATTEMPTS — either from repeated submission errors,
+   * a confirmed revert, or a timeout that could not be resolved by fee bumping.
+   *
+   * A failed entry:
+   *  - Is excluded from listPendingOutboxEntries() (status != pending)
+   *  - Does NOT block a new createOutboxEntry() for the same flightId+kind
+   *    (the idempotency guard only blocks on pending/submitted)
+   *  - Triggers an alert in the caller after this method returns
+   *
+   * lastError is truncated to 2000 chars to fit the text column comfortably
+   * while still providing enough context for debugging.
+   */
+  async markOutboxFailed(id: string, error: string): Promise<void> {
+    await this.db.txOutbox.update({
+      where: { id },
+      data: {
+        status:    "failed",
+        lastError: error.slice(0, 2000),
+        attempts:  { increment: 1 },
+      },
+    });
+
+    this.logger.warn({ outboxId: id, error: error.slice(0, 200) }, "Outbox entry marked failed");
   }
 
   async getIndexerCursor(): Promise<bigint | null> {
