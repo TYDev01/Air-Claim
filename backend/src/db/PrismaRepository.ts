@@ -381,8 +381,29 @@ export class PrismaRepository implements IFlightRepository {
     return rows.map(mapOutbox);
   }
 
-  async markOutboxSubmitted(_id: string, _txHash: string): Promise<void> {
-    throw new Error("Not yet implemented — see markOutboxSubmitted commit");
+  /**
+   * Transition an outbox entry from pending → submitted and record the tx hash.
+   *
+   * Called by the OracleUpdater / Keeper immediately after walletClient.writeContract()
+   * returns a hash but before waitForTransactionReceipt completes. This ensures
+   * the hash is persisted even if the process crashes during confirmation waiting —
+   * on restart the entry can be looked up by hash and its status reconciled.
+   *
+   * Also increments the attempts counter so repeated stuck-tx resubmissions
+   * are accurately tracked toward TX_MAX_ATTEMPTS.
+   */
+  async markOutboxSubmitted(id: string, txHash: string): Promise<void> {
+    await this.db.txOutbox.update({
+      where: { id },
+      data: {
+        status:      "submitted",
+        txHash,
+        submittedAt: new Date(),
+        attempts:    { increment: 1 },
+      },
+    });
+
+    this.logger.debug({ outboxId: id, txHash }, "Outbox entry marked submitted");
   }
 
   async markOutboxConfirmed(_id: string, _at: Date): Promise<void> {
