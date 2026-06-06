@@ -1,0 +1,129 @@
+// AirClaim Oracle Backend — Prisma schema
+//
+// Tables:
+//   tracked_flight  — one row per flight with an active AirClaim policy
+//   tx_outbox       — one row per intended on-chain write; restart-safe outbox pattern
+//   indexer_cursor  — single-row high-water-mark for the FlightInsured event indexer
+//
+// Run migrations:
+//   npx prisma migrate dev   (development)
+//   npx prisma migrate deploy (production / Docker entrypoint)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+/// Mirrors OnChainFlightStatus in IChainClient.ts (0-indexed).
+enum OnChainStatus {
+  Scheduled   // 0
+  Delayed     // 1
+  Cancelled   // 2
+  Landed      // 3
+}
+
+/// Kind of outbox entry.
+enum OutboxKind {
+  oracle_update  // updateFlight() call on FlightOracle
+  keeper_check   // checkFlightDelay() call on InsuredFlightsAgency
+}
+
+/// Lifecycle state of a tx_outbox row.
+enum OutboxStatus {
+  pending    // created, not yet submitted
+  submitted  // tx hash recorded, awaiting confirmation
+  confirmed  // mined with required confirmations
+  failed     // exhausted all attempts
+}
+
+// ─── tracked_flight ───────────────────────────────────────────────────────────
+
+/// One row per flight that has at least one active AirClaim policy.
+/// Populated by indexing FlightInsured events from InsuredFlightsAgency.
+/// Polling and keeping stop once is_terminal = true.
+model TrackedFlight {
+  id        String   @id @default(uuid())
+  /// bytes32 hex string — keccak256(flightIata), matches the contract's flightId.
+  flightId  String   @unique @map("flight_id")
+  flightIata            String   @map("flight_iata")
+  flightDate            String   @map("flight_date") // "YYYY-MM-DD" UTC departure date
+  originIata            String   @map("origin_iata")
+  destIata              String   @map("dest_iata")
+  scheduledDepartureUtc DateTime @map("scheduled_departure_utc") @db.Timestamptz
+  scheduledArrivalUtc   DateTime? @map("scheduled_arrival_utc") @db.Timestamptz
+
+  /// Last status successfully submitted and confirmed on FlightOracle.
+  lastSubmittedStatus       OnChainStatus @default(Scheduled) @map("last_submitted_status")
+  lastSubmittedDelayMinutes Int           @default(0)         @map("last_submitted_delay_minutes")
+  lastSubmittedAt           DateTime?     @map("last_submitted_at") @db.Timestamptz
+
+  /// true once the flight reaches Landed or Cancelled on-chain.
+  /// Polling and keeping are skipped for terminal flights.
+  isTerminal Boolean  @default(false) @map("is_terminal")
+
+  /// Keeper will not call checkFlightDelay before this timestamp.
+  /// Set to scheduledArrivalUtc + KEEPER_BUFFER_SECONDS at track time.
+  keeperEligibleAfter DateTime? @map("keeper_eligible_after") @db.Timestamptz
+
+  /// Timestamp of the last keeper checkFlightDelay call (for cooldown gating).
+  keeperLastCalledAt DateTime? @map("keeper_last_called_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt      @map("updated_at") @db.Timestamptz
+
+  outboxEntries TxOutbox[]
+
+  @@index([isTerminal])
+  @@index([scheduledDepartureUtc])
+  @@index([keeperEligibleAfter])
+  @@map("tracked_flight")
+}
+
+// ─── tx_outbox ────────────────────────────────────────────────────────────────
+
+/// Transactional outbox for on-chain writes.
+/// One row per intended write. A confirmed row is never deleted (audit trail).
+/// Idempotency: createOutboxEntry is a no-op if a pending/submitted row already
+/// exists for the same flightId + kind.
+model TxOutbox {
+  id      String @id @default(uuid())
+  flightId String @map("flight_id")
+
+  kind              OutboxKind
+  /// Only populated for oracle_update entries.
+  intendedStatus       OnChainStatus? @map("intended_status")
+  intendedDelayMinutes Int?           @map("intended_delay_minutes")
+
+  status    OutboxStatus @default(pending)
+  txHash    String?      @map("tx_hash")
+  attempts  Int          @default(0)
+  lastError String?      @map("last_error") @db.Text
+
+  submittedAt DateTime? @map("submitted_at") @db.Timestamptz
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  flight TrackedFlight @relation(fields: [flightId], references: [flightId])
+
+  @@index([status])
+  @@index([flightId, kind, status])
+  @@map("tx_outbox")
+}
+
+// ─── indexer_cursor ───────────────────────────────────────────────────────────
+
+/// Single-row high-water-mark for the FlightInsured event indexer.
+/// id is always 1 — upserted on each batch of processed blocks.
+model IndexerCursor {
+  id                 Int      @id @default(1)
+  lastProcessedBlock BigInt   @map("last_processed_block")
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("indexer_cursor")
+}
