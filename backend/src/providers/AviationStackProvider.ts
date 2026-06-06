@@ -146,13 +146,45 @@ export class AviationStackProvider implements IFlightDataProvider {
     throw new Error("Not yet implemented — see getFlightStatus commit");
   }
 
-  // ── Internal helpers (implemented in subsequent commits) ──────────────────
+  // ── Internal helpers ──────────────────────────────────────────────────────
 
-  _parseResponse(
-    _raw: RawFlight,
-    _flightIata: string,
-  ): NormalisedFlight {
-    throw new Error("Not yet implemented — see _parseResponse commit");
+  /**
+   * Normalise a single RawFlight entry from the AviationStack response into
+   * the provider-agnostic NormalisedFlight shape.
+   *
+   * All field accesses are defensive — null/undefined at any level is handled
+   * explicitly rather than letting it propagate silently.
+   *
+   * @param raw         A single element from response.data[].
+   * @param flightIata  The IATA code requested (used as fallback if the API
+   *                    omits flight.iata in the response).
+   */
+  _parseResponse(raw: RawFlight, flightIata: string): NormalisedFlight {
+    const normLeg = (leg: RawLeg): FlightLeg => ({
+      iata:           leg.iata ?? "",
+      scheduledUtc:   leg.scheduled ?? null,
+      estimatedUtc:   leg.estimated ?? null,
+      actualUtc:      leg.actual    ?? null,
+      // delay is an integer number of minutes or null — never coerce a string.
+      delayMinutes:   typeof leg.delay === "number" ? leg.delay : null,
+    });
+
+    // flight_date from the API is "YYYY-MM-DD" in the airline's local timezone.
+    // We store it as-is — callers use it only for API lookups, not UTC math.
+    const flightDate = raw.flight_date ?? "";
+
+    // Produce a deterministic digest of the raw record for alert messages
+    // when the mapper returns Unknown. Truncate to keep logs bounded.
+    const rawDigest = JSON.stringify(raw).slice(0, 500);
+
+    return {
+      flightIata:  (raw.flight?.iata ?? flightIata).toUpperCase(),
+      flightDate,
+      apiStatus:   toApiStatus(raw.flight_status),
+      departure:   normLeg(raw.departure),
+      arrival:     normLeg(raw.arrival),
+      rawDigest,
+    };
   }
 
   /** Exposed for testing — returns the underlying axios instance. @internal */
