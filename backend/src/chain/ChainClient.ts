@@ -230,17 +230,87 @@ export class ChainClient implements IChainClient {
 
   // ── Write methods (implemented in subsequent commits) ─────────────────────
 
+  /**
+   * Calls FlightOracle.updateFlight(flightId, status, delayMinutes, source).
+   *
+   * Routes through _sendWithRetry for nonce management, EIP-1559 fee
+   * strategy, stuck-tx detection, and confirmation waiting.
+   *
+   * In DRY_RUN mode: logs the intended call with all arguments and returns
+   * a synthetic TxResult with a zero hash — nothing is broadcast.
+   */
   async updateFlight(
-    _flightId: `0x${string}`,
-    _status: OnChainFlightStatus,
-    _delayMinutes: number,
-    _source: string,
+    flightId: `0x${string}`,
+    status: OnChainFlightStatus,
+    delayMinutes: number,
+    source: string,
   ): Promise<TxResult> {
-    throw new Error("Not yet implemented — see updateFlight commit");
+    const { config, walletClient, logger } = this.s;
+    const label = `updateFlight(${flightId.slice(0, 10)}… status=${status} delay=${delayMinutes})`;
+
+    if (config.DRY_RUN) {
+      logger.info(
+        { dryRun: true, flightId, status, delayMinutes, source, contract: this.s.flightOracleAddress },
+        "DRY RUN — would call FlightOracle.updateFlight",
+      );
+      return { txHash: "0x0000000000000000000000000000000000000000000000000000000000000000", blockNumber: 0n, gasUsed: 0n };
+    }
+
+    return this._sendWithRetry(label, async ({ maxFeePerGas, maxPriorityFeePerGas, nonce }) => {
+      const hash = await walletClient.writeContract({
+        address:      this.s.flightOracleAddress,
+        abi:          this.s.flightOracleAbi,
+        functionName: "updateFlight",
+        args:         [flightId, status, delayMinutes, source],
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+        nonce,
+      });
+
+      logger.debug({ label, hash, nonce, maxFeePerGas: String(maxFeePerGas) }, "updateFlight tx sent");
+      return hash;
+    });
   }
 
-  async checkFlightDelay(_flightId: `0x${string}`): Promise<TxResult> {
-    throw new Error("Not yet implemented — see checkFlightDelay commit");
+  /**
+   * Calls InsuredFlightsAgency.checkFlightDelay(flightId).
+   *
+   * Opens the claim window on-chain once a delay has been confirmed by the
+   * oracle. Routes through _sendWithRetry for the same nonce/fee/confirmation
+   * semantics as updateFlight.
+   *
+   * The caller (Keeper) must gate on keeper_last_called_at to avoid calling
+   * within the contract's own CHECK_COOLDOWN_SECONDS window — this method
+   * does not enforce the cooldown itself, it simply submits when asked.
+   *
+   * In DRY_RUN mode: logs the intended call and returns a synthetic TxResult.
+   */
+  async checkFlightDelay(flightId: `0x${string}`): Promise<TxResult> {
+    const { config, walletClient, logger } = this.s;
+    const label = `checkFlightDelay(${flightId.slice(0, 10)}…)`;
+
+    if (config.DRY_RUN) {
+      logger.info(
+        { dryRun: true, flightId, contract: this.s.ifaAddress },
+        "DRY RUN — would call InsuredFlightsAgency.checkFlightDelay",
+      );
+      return { txHash: "0x0000000000000000000000000000000000000000000000000000000000000000", blockNumber: 0n, gasUsed: 0n };
+    }
+
+    return this._sendWithRetry(label, async ({ maxFeePerGas, maxPriorityFeePerGas, nonce }) => {
+      const hash = await walletClient.writeContract({
+        address:      this.s.ifaAddress,
+        abi:          this.s.insuredFlightsAgencyAbi,
+        functionName: "checkFlightDelay",
+        args:         [flightId],
+        maxFeePerGas,
+        maxPriorityFeePerGas,
+        nonce,
+      });
+
+      logger.debug({ label, hash, nonce, maxFeePerGas: String(maxFeePerGas) }, "checkFlightDelay tx sent");
+      return hash;
+    });
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
