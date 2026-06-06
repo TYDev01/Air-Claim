@@ -20,6 +20,7 @@ import type { IFlightRepository, TrackedFlight } from "../interfaces/IFlightRepo
 import type { IAlertSender }   from "../oracle/OracleUpdater.js";
 import type { AppConfig }      from "../config/schema.js";
 import type { Logger }         from "../logger.js";
+import { keeperChecksTotal }   from "../metrics/metrics.js";
 
 export class Keeper {
   private readonly chain:   IChainClient;
@@ -111,6 +112,7 @@ export class Keeper {
       await this.repo.markOutboxSubmitted(entry.id, result.txHash);
       await this.repo.markOutboxConfirmed(entry.id, new Date());
 
+      keeperChecksTotal.inc({ outcome: "confirmed" });
       log.info(
         { txHash: result.txHash, gasUsed: result.gasUsed.toString() },
         "checkFlightDelay confirmed on-chain",
@@ -121,6 +123,7 @@ export class Keeper {
       await this.alerter.send(
         `[AirClaim] Keeper CHECK FAILED for ${flight.flightIata}: ${errMsg.slice(0, 200)}`,
       );
+      keeperChecksTotal.inc({ outcome: "failed" });
       log.error({ err }, "Keeper checkFlightDelay failed — outbox marked failed, alert sent");
     }
   }
