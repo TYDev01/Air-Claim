@@ -197,8 +197,35 @@ export class PrismaRepository implements IFlightRepository {
     return rows.map(mapFlight);
   }
 
-  async listKeeperEligibleFlights(_cooldownSeconds: number): Promise<TrackedFlight[]> {
-    throw new Error("Not yet implemented — see listKeeperEligibleFlights commit");
+  /**
+   * Returns non-terminal flights that the keeper should call checkFlightDelay on.
+   *
+   * A flight is eligible when ALL of the following hold:
+   *  1. isTerminal = false (still being tracked)
+   *  2. keeperEligibleAfter ≤ now (scheduled arrival + buffer has passed)
+   *  3. keeperLastCalledAt IS NULL  OR  keeperLastCalledAt ≤ now - cooldownSeconds
+   *     (respects the contract's own check cooldown so we don't waste gas)
+   *
+   * @param cooldownSeconds  Minimum gap between keeper calls for the same flight.
+   *                         Must be >= the contract's checkCooldownSeconds (300 s).
+   */
+  async listKeeperEligibleFlights(cooldownSeconds: number): Promise<TrackedFlight[]> {
+    const now          = new Date();
+    const cooldownCutoff = new Date(now.getTime() - cooldownSeconds * 1_000);
+
+    const rows = await this.db.trackedFlight.findMany({
+      where: {
+        isTerminal:         false,
+        keeperEligibleAfter: { lte: now },
+        OR: [
+          { keeperLastCalledAt: null },
+          { keeperLastCalledAt: { lte: cooldownCutoff } },
+        ],
+      },
+      orderBy: { keeperEligibleAfter: "asc" },
+    });
+
+    return rows.map(mapFlight);
   }
 
   async markSubmitted(_flightId: string, _status: SubmittedStatus, _delayMinutes: number, _at: Date): Promise<void> {
