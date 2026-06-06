@@ -137,13 +137,82 @@ export class AviationStackProvider implements IFlightDataProvider {
     this.policy = wrap(retryPolicy, breaker);
   }
 
-  // ── Interface methods (implemented in subsequent commits) ──────────────────
+  // ── IFlightDataProvider ───────────────────────────────────────────────────
 
+  /**
+   * Fetch the current status of a single flight from AviationStack.
+   *
+   * Flow:
+   *  1. Execute GET /v1/flights?access_key=KEY&flight_iata=IATA&flight_date=DATE
+   *     through the cockatiel policy (circuit breaker wrapping axios-retry).
+   *  2. Validate the response envelope: check for API-level error objects and
+   *     confirm data[] is a non-empty array.
+   *  3. Normalise the first matching record via _parseResponse().
+   *
+   * @returns NormalisedFlight when the API returns data for the flight.
+   * @returns null when the API returns an empty result set (flight not found).
+   * @throws  On network errors, auth failures, API error responses, or when
+   *          the circuit breaker is open. The caller treats any throw as
+   *          "hold, retry later."
+   */
   async getFlightStatus(
-    _flightIata: string,
-    _flightDate: string,
+    flightIata: string,
+    flightDate: string,
   ): Promise<NormalisedFlight | null> {
-    throw new Error("Not yet implemented — see getFlightStatus commit");
+    const log = this.logger.child({ flightIata, flightDate });
+
+    let response: RawApiResponse;
+
+    try {
+      const result = await this.policy.execute(() =>
+        this.http.get<RawApiResponse>("/flights", {
+          params: {
+            // API key passed as query param per AviationStack spec.
+            // axios does not log params by default; our pino redact list
+            // covers the access_key shape as a belt-and-suspenders guard.
+            access_key:  this.apiKey,
+            flight_iata: flightIata.toUpperCase(),
+            flight_date: flightDate,
+          },
+        }),
+      );
+      response = result.data;
+    } catch (err) {
+      log.warn({ err }, "AviationStack request failed (network or circuit open)");
+      throw err;
+    }
+
+    // ── API-level error check ───────────────────────────────────────────────
+    // AviationStack returns HTTP 200 even for auth failures and quota errors;
+    // the error is encoded in response.error.
+    if (response.error) {
+      const { code, message } = response.error;
+      log.error({ code, message }, "AviationStack API returned an error object");
+      throw new Error(`AviationStack API error [${code}]: ${message}`);
+    }
+
+    // ── Empty result ────────────────────────────────────────────────────────
+    const data = response.data;
+    if (!Array.isArray(data) || data.length === 0) {
+      log.info("AviationStack returned no data for flight — treating as not found");
+      return null;
+    }
+
+    // AviationStack may return multiple records when querying by IATA code
+    // (e.g. code-shares). Use the first record whose flight.iata matches
+    // the requested code; fall back to the first record if none match exactly.
+    const match =
+      data.find(r => r.flight?.iata?.toUpperCase() === flightIata.toUpperCase()) ??
+      data[0]!;
+
+    const normalised = this._parseResponse(match, flightIata);
+
+    log.debug(
+      { apiStatus: normalised.apiStatus, depDelay: normalised.departure.delayMinutes },
+      "AviationStack response normalised",
+    );
+
+    return normalised;
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
