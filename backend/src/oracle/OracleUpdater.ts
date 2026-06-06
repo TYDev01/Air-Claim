@@ -23,6 +23,7 @@ import type { IFlightRepository, TrackedFlight } from "../interfaces/IFlightRepo
 import { mapApiStatus, UNKNOWN }    from "../providers/mapper.js";
 import type { AppConfig }           from "../config/schema.js";
 import type { Logger }              from "../logger.js";
+import { oracleUpdatesTotal }       from "../metrics/metrics.js";
 
 // ─── Alerter interface ────────────────────────────────────────────────────────
 // Thin interface so OracleUpdater doesn't depend on a concrete alerter.
@@ -214,6 +215,7 @@ export class OracleUpdater {
         new Date(),
       );
 
+      oracleUpdatesTotal.inc({ outcome: "confirmed" });
       log.info(
         { txHash: result.txHash, gasUsed: result.gasUsed.toString() },
         "Oracle update confirmed on-chain",
@@ -224,6 +226,7 @@ export class OracleUpdater {
       await this.alerter.send(
         `[AirClaim] Oracle UPDATE FAILED for ${flight.flightIata}: ${errMsg.slice(0, 200)}`,
       );
+      oracleUpdatesTotal.inc({ outcome: "failed" });
       log.error({ err }, "Oracle update failed — outbox marked failed, alert sent");
     }
   }
