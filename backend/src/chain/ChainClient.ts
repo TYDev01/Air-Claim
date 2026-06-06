@@ -215,8 +215,17 @@ export class ChainClient implements IChainClient {
     return raw.claimable;
   }
 
+  /**
+   * Returns the updater wallet's current native CELO balance in wei.
+   *
+   * Called by the health/metrics layer and the alerting subsystem to detect
+   * when the wallet is running low on gas. The threshold is configured via
+   * MIN_UPDATER_BALANCE_WEI in AppConfig.
+   */
   async getUpdaterBalance(): Promise<bigint> {
-    throw new Error("Not yet implemented — see getUpdaterBalance commit");
+    return this.s.publicClient.getBalance({
+      address: this.s.updaterAddress,
+    });
   }
 
   // ── Write methods (implemented in subsequent commits) ─────────────────────
