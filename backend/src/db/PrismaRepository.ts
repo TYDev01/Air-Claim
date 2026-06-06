@@ -286,8 +286,27 @@ export class PrismaRepository implements IFlightRepository {
     this.logger.debug({ flightId, at }, "Keeper call timestamp recorded");
   }
 
-  async markTerminal(_flightId: string): Promise<void> {
-    throw new Error("Not yet implemented — see markTerminal commit");
+  /**
+   * Explicitly mark a flight terminal, stopping all further polling and keeping.
+   *
+   * This is a safety escape hatch for cases where the terminal state is
+   * determined outside of markSubmitted() — for example:
+   *  - An operator manually resolving a stuck flight via the admin interface.
+   *  - The FlightTracker detecting that a policy has already been claimed
+   *    on-chain (no further oracle updates needed).
+   *  - Integration tests that need to fast-forward a flight to terminal state.
+   *
+   * Note: markSubmitted() already sets isTerminal=true for Landed/Cancelled
+   * statuses. Call this method only when markSubmitted() has not been called
+   * or is not appropriate.
+   */
+  async markTerminal(flightId: string): Promise<void> {
+    await this.db.trackedFlight.update({
+      where: { flightId },
+      data:  { isTerminal: true },
+    });
+
+    this.logger.info({ flightId }, "Flight marked terminal — polling and keeping stopped");
   }
 
   async createOutboxEntry(_data: CreateOutboxEntry): Promise<OutboxEntry | null> {
