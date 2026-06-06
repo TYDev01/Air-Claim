@@ -406,8 +406,30 @@ export class PrismaRepository implements IFlightRepository {
     this.logger.debug({ outboxId: id, txHash }, "Outbox entry marked submitted");
   }
 
-  async markOutboxConfirmed(_id: string, _at: Date): Promise<void> {
-    throw new Error("Not yet implemented — see markOutboxConfirmed commit");
+  /**
+   * Transition an outbox entry from submitted → confirmed.
+   *
+   * Called by OracleUpdater / Keeper after ChainClient._sendWithRetry()
+   * resolves with a TxResult — meaning the tx was mined with at least
+   * TX_CONFIRMATIONS blocks on top.
+   *
+   * The confirmedAt timestamp is the authoritative record of when the
+   * on-chain state change was finalised. The row is never deleted —
+   * it forms the permanent audit trail of every oracle write.
+   *
+   * @param id   Outbox entry UUID.
+   * @param at   Timestamp of confirmation (typically block timestamp or wall clock).
+   */
+  async markOutboxConfirmed(id: string, at: Date): Promise<void> {
+    await this.db.txOutbox.update({
+      where: { id },
+      data: {
+        status:      "confirmed",
+        confirmedAt: at,
+      },
+    });
+
+    this.logger.debug({ outboxId: id, confirmedAt: at }, "Outbox entry confirmed");
   }
 
   async markOutboxFailed(_id: string, _error: string): Promise<void> {
