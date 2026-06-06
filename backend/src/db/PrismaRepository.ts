@@ -361,8 +361,24 @@ export class PrismaRepository implements IFlightRepository {
     return mapOutbox(row);
   }
 
+  /**
+   * Returns all outbox entries with status=pending, ordered by creation time.
+   *
+   * Called by the OracleUpdater and Keeper on each work cycle to find entries
+   * that need to be submitted to the chain. On a clean restart this also
+   * picks up any entries that were created but not yet submitted before the
+   * process crashed — providing restart-safety without re-enqueuing.
+   *
+   * Note: submitted entries (tx hash recorded, awaiting confirmation) are
+   * NOT returned here — they are tracked separately by the confirmation
+   * watcher inside _sendWithRetry. Only truly un-sent entries are returned.
+   */
   async listPendingOutboxEntries(): Promise<OutboxEntry[]> {
-    throw new Error("Not yet implemented — see listPendingOutboxEntries commit");
+    const rows = await this.db.txOutbox.findMany({
+      where:   { status: "pending" },
+      orderBy: { createdAt: "asc" },
+    });
+    return rows.map(mapOutbox);
   }
 
   async markOutboxSubmitted(_id: string, _txHash: string): Promise<void> {
