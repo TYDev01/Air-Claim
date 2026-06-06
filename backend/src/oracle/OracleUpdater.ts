@@ -129,8 +129,103 @@ export class OracleUpdater {
     return true;
   }
 
-  async _processOneFlight(_flight: TrackedFlight): Promise<void> {
-    throw new Error("Not yet implemented — see _processOneFlight commit");
+  /**
+   * Run the full oracle update pipeline for a single tracked flight.
+   *
+   * Steps:
+   *  1. Fetch current status from the flight data provider.
+   *  2. Map API status → on-chain enum + delayMinutes via mapApiStatus().
+   *  3. If mapper returns Unknown: alert and return (fail safe — do not write).
+   *  4. Run _shouldSubmit() idempotency + regression check.
+   *  5. Create a pending outbox entry (idempotency guard in repo).
+   *  6. Submit via chain.updateFlight() and record the tx hash.
+   *  7. Mark outbox confirmed + update tracked flight row.
+   *  8. On any error in steps 5-7: mark outbox failed + alert.
+   */
+  async _processOneFlight(flight: TrackedFlight): Promise<void> {
+    const log = this.logger.child({ flightId: flight.flightId, flightIata: flight.flightIata });
+
+    // ── Step 1: fetch ──────────────────────────────────────────────────────
+    let normalised;
+    try {
+      normalised = await this.provider.getFlightStatus(flight.flightIata, flight.flightDate);
+    } catch (err) {
+      log.warn({ err }, "Provider fetch failed — skipping flight this tick");
+      return; // Circuit may be open; scheduler will retry next tick.
+    }
+
+    if (!normalised) {
+      log.info("Provider returned null (flight not found) — skipping");
+      return;
+    }
+
+    // ── Step 2: map ────────────────────────────────────────────────────────
+    const mapped = mapApiStatus(normalised, this.config.DELAY_THRESHOLD_MINUTES);
+
+    // ── Step 3: Unknown → hold + alert ────────────────────────────────────
+    if (mapped.unknown) {
+      log.warn({ reason: mapped.reason, rawDigest: normalised.rawDigest }, "Mapper returned Unknown — holding");
+      await this.alerter.send(
+        `[AirClaim] Oracle HOLD for ${flight.flightIata} (${flight.flightId.slice(0, 10)}…): ${mapped.reason}`,
+      );
+      return;
+    }
+
+    // ── Step 4: idempotency check ─────────────────────────────────────────
+    if (!this._shouldSubmit(flight, mapped.status, mapped.delayMinutes)) {
+      return; // No state change or regression — nothing to do.
+    }
+
+    log.info(
+      { newStatus: mapped.status, delayMinutes: mapped.delayMinutes },
+      "Status transition detected — submitting oracle update",
+    );
+
+    // ── Step 5: enqueue outbox ────────────────────────────────────────────
+    const entry = await this.repo.createOutboxEntry({
+      flightId:            flight.flightId,
+      kind:                "oracle_update",
+      intendedStatus:      mapped.status,
+      intendedDelayMinutes: mapped.delayMinutes,
+    });
+
+    if (!entry) {
+      log.debug("Outbox entry already active — skipping (idempotency)");
+      return;
+    }
+
+    // ── Steps 6-7: submit + confirm ───────────────────────────────────────
+    try {
+      await this.repo.markOutboxSubmitted(entry.id, "pending_hash");
+
+      const result = await this.chain.updateFlight(
+        flight.flightId as `0x${string}`,
+        mapped.status,
+        mapped.delayMinutes,
+        `aviationstack:${normalised.apiStatus}`,
+      );
+
+      await this.repo.markOutboxSubmitted(entry.id, result.txHash);
+      await this.repo.markOutboxConfirmed(entry.id, new Date());
+      await this.repo.markSubmitted(
+        flight.flightId,
+        mapped.status,
+        mapped.delayMinutes,
+        new Date(),
+      );
+
+      log.info(
+        { txHash: result.txHash, gasUsed: result.gasUsed.toString() },
+        "Oracle update confirmed on-chain",
+      );
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      await this.repo.markOutboxFailed(entry.id, errMsg);
+      await this.alerter.send(
+        `[AirClaim] Oracle UPDATE FAILED for ${flight.flightIata}: ${errMsg.slice(0, 200)}`,
+      );
+      log.error({ err }, "Oracle update failed — outbox marked failed, alert sent");
+    }
   }
 
   async run(): Promise<void> {
