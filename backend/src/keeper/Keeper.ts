@@ -125,7 +125,47 @@ export class Keeper {
     }
   }
 
+  /**
+   * Process all keeper-eligible flights for this scheduler tick.
+   *
+   * Fetches flights whose keeperEligibleAfter ≤ now and whose cooldown has
+   * elapsed, then calls _processOneFlight() for each with bounded concurrency
+   * of 5 — matching the OracleUpdater pattern.
+   *
+   * Individual flight errors are fully isolated inside _processOneFlight()
+   * and never propagate here. The outer catch below is a belt-and-suspenders
+   * guard against programming mistakes.
+   *
+   * @returns Number of eligible flights dispatched (attempted, not necessarily confirmed).
+   */
   async run(): Promise<number> {
-    throw new Error("Not yet implemented — see Keeper.run commit");
+    const flights = await this.repo.listKeeperEligibleFlights(
+      this.config.CHECK_COOLDOWN_SECONDS,
+    );
+
+    if (flights.length === 0) {
+      this.logger.debug("No keeper-eligible flights this tick");
+      return 0;
+    }
+
+    this.logger.info({ count: flights.length }, "Keeper run starting");
+
+    const CONCURRENCY = 5;
+    for (let i = 0; i < flights.length; i += CONCURRENCY) {
+      const batch = flights.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        batch.map(flight =>
+          this._processOneFlight(flight).catch(err => {
+            this.logger.error(
+              { err, flightId: flight.flightId },
+              "Unexpected error from Keeper._processOneFlight — isolated",
+            );
+          }),
+        ),
+      );
+    }
+
+    this.logger.info({ count: flights.length }, "Keeper run complete");
+    return flights.length;
   }
 }
