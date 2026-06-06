@@ -166,8 +166,16 @@ export class PrismaRepository implements IFlightRepository {
     return mapFlight(row);
   }
 
-  async getTrackedFlight(_flightId: string): Promise<TrackedFlight | null> {
-    throw new Error("Not yet implemented — see getTrackedFlight commit");
+  /**
+   * Fetch a tracked flight by its bytes32 flightId hex string.
+   * Returns null if no row exists — callers must handle the not-found case
+   * rather than assuming every polled flightId is tracked.
+   */
+  async getTrackedFlight(flightId: string): Promise<TrackedFlight | null> {
+    const row = await this.db.trackedFlight.findUnique({
+      where: { flightId },
+    });
+    return row ? mapFlight(row) : null;
   }
 
   async listActiveFlights(): Promise<TrackedFlight[]> {
