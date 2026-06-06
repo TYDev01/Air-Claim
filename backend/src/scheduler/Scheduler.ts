@@ -201,8 +201,44 @@ export class Scheduler {
     }, KEEPER_INTERVAL_MS);
   }
 
+  /**
+   * Run one indexer tick and self-reschedule the next one at a fixed 60-second interval.
+   *
+   * 1. Calls FlightTracker.sync() — fetches new FlightInsured events since the
+   *    last cursor position and upserts TrackedFlight rows for each new policy.
+   * 2. Logs new flights discovered + wall-clock duration.
+   * 3. Errors from FlightTracker.sync() are caught and logged — the indexer
+   *    cursor is not advanced on a failed batch, so the next tick retries from
+   *    the last successfully committed cursor position (crash-safe by design).
+   * 4. Schedules itself again unless stop() has set running=false.
+   *
+   * Interval is fixed at INDEXER_INTERVAL_MS (60 s) — the indexer is I/O-bound
+   * (eth_getLogs) and does not benefit from adaptive pacing.
+   */
   async _indexerTick(): Promise<void> {
-    throw new Error("Not yet implemented — see Scheduler._indexerTick commit");
+    const start = Date.now();
+    try {
+      const discovered = await this.tracker.sync();
+      if (discovered > 0) {
+        this.logger.info(
+          { discovered, durationMs: Date.now() - start },
+          "Indexer tick — new flights discovered",
+        );
+      } else {
+        this.logger.debug(
+          { durationMs: Date.now() - start },
+          "Indexer tick — no new flights",
+        );
+      }
+    } catch (err) {
+      this.logger.error({ err, durationMs: Date.now() - start }, "Indexer tick threw — cursor not advanced, will retry");
+    }
+
+    if (!this.running) return;
+
+    this.indexerTimer = setTimeout(() => {
+      this.indexerInFlight = this._indexerTick();
+    }, INDEXER_INTERVAL_MS);
   }
 
   async start(): Promise<void> {
