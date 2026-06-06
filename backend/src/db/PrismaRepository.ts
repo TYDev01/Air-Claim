@@ -178,8 +178,23 @@ export class PrismaRepository implements IFlightRepository {
     return row ? mapFlight(row) : null;
   }
 
+  /**
+   * Returns all non-terminal tracked flights ordered by scheduled departure.
+   *
+   * This is the scheduler's polling work list — every flight returned here
+   * will be polled against AviationStack on the next tick. Terminal flights
+   * (Landed or Cancelled confirmed on-chain) are excluded so polling stops
+   * automatically once a flight reaches its final state.
+   *
+   * Ordered by scheduledDepartureUtc ascending so flights closest to
+   * departure are processed first (highest urgency).
+   */
   async listActiveFlights(): Promise<TrackedFlight[]> {
-    throw new Error("Not yet implemented — see listActiveFlights commit");
+    const rows = await this.db.trackedFlight.findMany({
+      where:   { isTerminal: false },
+      orderBy: { scheduledDepartureUtc: "asc" },
+    });
+    return rows.map(mapFlight);
   }
 
   async listKeeperEligibleFlights(_cooldownSeconds: number): Promise<TrackedFlight[]> {
