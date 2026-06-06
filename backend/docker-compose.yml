@@ -1,0 +1,71 @@
+# AirClaim Oracle Backend — docker-compose for local development and self-hosted deployment.
+#
+# Usage:
+#   cp .env.example .env          # fill in required values
+#   docker compose up -d          # start Postgres + oracle
+#   docker compose logs -f oracle # tail logs
+#   docker compose down           # stop and remove containers (data volume persists)
+#   docker compose down -v        # stop and remove containers + Postgres data volume
+#
+# The oracle service waits for Postgres to pass its health check before starting.
+# Prisma migrations run automatically on oracle container startup.
+
+version: "3.9"
+
+services:
+
+  # ── Postgres ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-oracle}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB:       ${POSTGRES_DB:-airclaim}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Expose on 127.0.0.1 only — not accessible from outside the host.
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oracle} -d ${POSTGRES_DB:-airclaim}"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+      start_period: 10s
+
+  # ── Oracle backend ──────────────────────────────────────────────────────────
+  oracle:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Override DATABASE_URL to use the compose-internal Postgres hostname.
+      DATABASE_URL: >-
+        postgresql://${POSTGRES_USER:-oracle}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-airclaim}
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${HTTP_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/healthz || exit 1"]
+      interval: 30s
+      timeout:  5s
+      retries:  3
+      start_period: 30s
+    # Propagate SIGTERM for graceful shutdown (Scheduler.stop → prisma.$disconnect).
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+volumes:
+  postgres_data:
+    driver: local
