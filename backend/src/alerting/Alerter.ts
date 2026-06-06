@@ -31,6 +31,9 @@ export type { IAlertSender };
 // 5-second timeout — alerts are best-effort; we never block the pipeline on them.
 const alertHttp = axios.create({ timeout: 5_000 });
 
+// Telegram Bot API base — token is appended per-request, never stored in a URL constant.
+const TELEGRAM_API_BASE = "https://api.telegram.org";
+
 // ─── NoopAlerter ─────────────────────────────────────────────────────────────
 
 /**
@@ -86,6 +89,67 @@ export class WebhookAlerter implements IAlertSender {
       this.logger.warn(
         { err: err instanceof Error ? err.message : String(err) },
         "Webhook alert delivery failed — swallowing error",
+      );
+    }
+  }
+}
+
+// ─── TelegramAlerter ──────────────────────────────────────────────────────────
+
+/**
+ * IAlertSender that delivers messages via the Telegram Bot API.
+ *
+ * Calls POST https://api.telegram.org/bot{token}/sendMessage with the
+ * configured chat_id and message text. parse_mode is omitted so plain-text
+ * messages are never rejected due to accidental HTML/Markdown characters.
+ *
+ * Never throws — delivery failures are logged at warn level and swallowed.
+ * The bot token is never logged or stored in a loggable URL string; it is
+ * interpolated at call time and discarded.
+ *
+ * Requires both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to be set.
+ * Constructor throws at boot if either is missing.
+ */
+export class TelegramAlerter implements IAlertSender {
+  private readonly token:  string;
+  private readonly chatId: string;
+  private readonly logger: Logger;
+
+  constructor(
+    config: Pick<AppConfig, "TELEGRAM_BOT_TOKEN" | "TELEGRAM_CHAT_ID">,
+    logger: Logger,
+  ) {
+    if (!config.TELEGRAM_BOT_TOKEN || !config.TELEGRAM_CHAT_ID) {
+      throw new Error(
+        "TelegramAlerter requires both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to be set",
+      );
+    }
+    this.token  = config.TELEGRAM_BOT_TOKEN;
+    this.chatId = config.TELEGRAM_CHAT_ID;
+    this.logger = logger.child({ component: "TelegramAlerter" });
+  }
+
+  async send(message: string): Promise<void> {
+    try {
+      // Token is interpolated here only — never stored in a property that
+      // could appear in a structured log object.
+      const url = `${TELEGRAM_API_BASE}/bot${this.token}/sendMessage`;
+
+      await alertHttp.post(
+        url,
+        {
+          chat_id: this.chatId,
+          text:    message,
+        },
+        { headers: { "Content-Type": "application/json" } },
+      );
+
+      this.logger.debug({ chatId: this.chatId }, "Telegram alert delivered");
+    } catch (err) {
+      // Never propagate — alert failure must not crash the pipeline.
+      this.logger.warn(
+        { chatId: this.chatId, err: err instanceof Error ? err.message : String(err) },
+        "Telegram alert delivery failed — swallowing error",
       );
     }
   }
