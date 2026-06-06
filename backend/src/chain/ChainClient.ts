@@ -322,6 +322,62 @@ export class ChainClient implements IChainClient {
     return { maxFeePerGas, maxPriorityFeePerGas };
   }
 
+  /**
+   * Returns the next nonce for the updater wallet, serialized through a
+   * promise-chain lock so concurrent callers never receive the same value.
+   *
+   * Strategy:
+   *  - First call: fetch `eth_getTransactionCount` (pending) from the RPC
+   *    to seed the local counter. This handles restarts correctly — the RPC
+   *    already knows about any pending txs from a previous run.
+   *  - Subsequent calls: increment the in-memory counter without an RPC
+   *    round-trip. This is safe because all writes go through a single process.
+   *  - On any submission error, the caller must call _resetNonce() to re-sync
+   *    from the RPC in case of a reorg or replacement.
+   *
+   * The nonceLock promise chain serializes acquisitions so that two concurrent
+   * updateFlight / checkFlightDelay calls always receive distinct nonces.
+   */
+  async _nextNonce(): Promise<number> {
+    let resolveNext!: () => void;
+    const prev = this.s.nonceLock;
+    this.s.nonceLock = new Promise<void>(res => { resolveNext = res; });
+
+    await prev; // wait for any in-flight acquisition to finish
+
+    try {
+      if (this.s.nonce === null) {
+        // First acquisition — seed from chain (includes pending txs).
+        const onChain = await this.s.publicClient.getTransactionCount({
+          address: this.s.updaterAddress,
+          blockTag: "pending",
+        });
+        this.s.nonce = BigInt(onChain);
+        this.s.logger.debug({ nonce: onChain }, "Nonce seeded from chain");
+      }
+
+      const current = this.s.nonce;
+      this.s.nonce  = current + 1n;
+      return Number(current);
+    } finally {
+      resolveNext(); // release the lock for the next waiter
+    }
+  }
+
+  /**
+   * Re-sync the nonce counter from the chain.
+   * Must be called after any submission error to guard against gaps caused
+   * by a reorg, a dropped tx, or an out-of-band transaction from the same key.
+   */
+  async _resetNonce(): Promise<void> {
+    const onChain = await this.s.publicClient.getTransactionCount({
+      address:  this.s.updaterAddress,
+      blockTag: "pending",
+    });
+    this.s.nonce = BigInt(onChain);
+    this.s.logger.warn({ nonce: onChain }, "Nonce reset from chain after error");
+  }
+
   /** Exposed for testing — returns internal state reference. @internal */
   _state(): ChainClientState { return this.s; }
 }
