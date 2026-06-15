@@ -54,7 +54,7 @@ export class Keeper {
     this.logger  = logger.child({ component: "Keeper" });
   }
 
-  // ── Pipeline methods (implemented in subsequent commits) ──────────────────
+  // ── Pipeline methods ──────────────────────────────────────────────────────
 
   /**
    * Run the keeper pipeline for a single eligible flight.

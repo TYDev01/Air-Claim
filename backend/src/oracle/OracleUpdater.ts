@@ -72,7 +72,7 @@ export class OracleUpdater {
     this.logger   = logger.child({ component: "OracleUpdater" });
   }
 
-  // ── Pipeline methods (implemented in subsequent commits) ──────────────────
+  // ── Pipeline methods ──────────────────────────────────────────────────────
 
   /**
    * Determine whether a new oracle update should be submitted.
