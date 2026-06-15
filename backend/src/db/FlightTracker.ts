@@ -40,6 +40,16 @@ interface FlightInsuredArgs {
   totalPremium: bigint;
 }
 
+/**
+ * The FlightInsured event signature the indexer matches and decodes. Exported so
+ * a test can pin it against the committed InsuredFlightsAgency ABI — if the
+ * contract event ever changes without this string being updated, that test
+ * fails instead of the indexer silently matching zero logs at runtime.
+ */
+export const FLIGHT_INSURED_EVENT = parseAbiItem(
+  "event FlightInsured(uint256 indexed policyId, bytes32 indexed flightId, string flightNumber, string departure, string arrival, uint64 flightDate, address[] passengers, uint256 totalPremium)",
+);
+
 // ─── FlightTracker ────────────────────────────────────────────────────────────
 
 export class FlightTracker {
@@ -91,9 +101,7 @@ export class FlightTracker {
 
     const logs = await this.publicClient.getLogs({
       address:   this.ifa,
-      event:     parseAbiItem(
-        "event FlightInsured(uint256 indexed policyId, bytes32 indexed flightId, string flightNumber, string departure, string arrival, uint64 flightDate, address[] passengers, uint256 totalPremium)",
-      ),
+      event:     FLIGHT_INSURED_EVENT,
       fromBlock,
       toBlock,
     });
