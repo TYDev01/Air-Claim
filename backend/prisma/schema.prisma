@@ -20,7 +20,9 @@ datasource db {
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-/// Mirrors OnChainFlightStatus in IChainClient.ts (0-indexed).
+/// Mirrors OnChainFlightStatus in IChainClient.ts, which mirrors the canonical
+/// FlightStatus enum in contracts/interfaces/IFlightOracle.sol (0-indexed).
+/// Keep this order in sync with both. Append only — never reorder.
 enum OnChainStatus {
   Scheduled   // 0
   Delayed     // 1

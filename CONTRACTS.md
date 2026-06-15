@@ -87,7 +87,7 @@ The core insurance contract. Manages premiums, delay confirmation, and payouts.
 
 | Aspect | Detail |
 |---|---|
-| Constructor args | `oracle` (IFlightOracle), `priceFeed` (AggregatorV3Interface, immutable), `stablecoin` (IERC20, immutable), `delayThresholdMinutes`, `baseFee` |
+| Constructor args | `oracle` (IFlightOracle), `priceFeed` (AggregatorV3Interface, immutable), `stablecoin` (IERC20, immutable), `delayThresholdMinutes`, `baseFee`, `maxStalenessSeconds` (price-feed freshness window), `checkCooldownSeconds` (min gap between delay checks per flight) |
 | Premium | 10% of each passenger's ticket price + `baseFee` per passenger; collected in native CELO on `insureFlight` |
 | `insureFlight(...)` | Creates a policy with auto-incrementing `policyId`; stores per-passenger ticket prices and claim flags |
 | `checkFlightDelay(bytes32 flightId)` | Reads oracle; if `delayMinutes > threshold`, marks flight claimable; rate-limited (min interval between calls per flight) |
