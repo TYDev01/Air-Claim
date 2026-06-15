@@ -66,7 +66,7 @@ async function main(): Promise<void> {
     logger.fatal({ err }, "Prisma connection failed — exiting");
     process.exit(1);
   }
-  const repo = new PrismaRepository(prisma);
+  const repo = new PrismaRepository(prisma, logger);
 
   // ── 5. ChainClient (wallet — includes boot role + balance checks) ──────────
   let chainClient: ChainClient;

@@ -98,16 +98,19 @@ export class PrismaRepository implements IFlightRepository {
   private readonly logger: Logger;
 
   /**
-   * Create a PrismaRepository.
+   * Create a PrismaRepository over a shared PrismaClient.
    *
+   * @param prisma  The single PrismaClient owned by the process. The repository
+   *                never creates its own client — connection lifecycle is managed
+   *                by whoever owns this instance (main.ts), so connect()/disconnect()
+   *                here operate on the same pool the rest of the app uses.
    * @param logger  Root logger; a child with component="PrismaRepository" is created.
    *
-   * The Prisma client is instantiated here but the underlying connection pool is
-   * established lazily on the first query. Call connect() to eagerly verify DB
-   * reachability at boot (recommended for /healthz and boot checks).
+   * The underlying connection pool is established lazily on the first query.
+   * Call connect() to eagerly verify DB reachability at boot.
    */
-  constructor(logger: Logger) {
-    this.db     = new PrismaClient();
+  constructor(prisma: PrismaClient, logger: Logger) {
+    this.db     = prisma;
     this.logger = logger.child({ component: "PrismaRepository" });
   }
 
