@@ -67,7 +67,7 @@ Populated by indexing `FlightInsured` events from `InsuredFlightsAgency`.
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid PK | |
-| `flight_id` | bytes32 (hex string) | `keccak256(flightIata)` — matches contract |
+| `flight_id` | bytes32 (hex string) | `keccak256(abi.encodePacked(flightIata, "-", flightDate))` — canonical encoding in `scripts/config/flightId.ts`; matches contract |
 | `flight_iata` | varchar | e.g. `"ET309"` |
 | `flight_date` | date | UTC departure date |
 | `origin_iata` | varchar | |

@@ -49,7 +49,9 @@ enum OutboxStatus {
 /// Polling and keeping stop once is_terminal = true.
 model TrackedFlight {
   id        String   @id @default(uuid())
-  /// bytes32 hex string — keccak256(flightIata), matches the contract's flightId.
+  /// bytes32 hex string, matches the contract's flightId. Canonical encoding:
+  /// keccak256(abi.encodePacked(flightIata, "-", flightDate)) — see
+  /// scripts/config/flightId.ts.
   flightId  String   @unique @map("flight_id")
   flightIata            String   @map("flight_iata")
   flightDate            String   @map("flight_date") // "YYYY-MM-DD" UTC departure date

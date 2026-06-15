@@ -425,9 +425,11 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     /// @notice Insure one or more passengers on a single flight.
     ///
     ///         Premium per passenger = 10 % of ticketPrice[i] + baseFee.
-    ///         The caller must send exactly the sum of all passenger premiums as
-    ///         msg.value (native CELO). Any excess is not refunded — callers
-    ///         should compute the exact amount off-chain using premiumFor().
+    ///         msg.value must equal the sum of all passenger premiums EXACTLY.
+    ///         Any other amount — too little OR too much — reverts with
+    ///         "IFA: wrong premium": the contract never keeps an overpayment and
+    ///         never partially fills, so there is no excess to refund. Integrators
+    ///         MUST call premiumFor() to compute the exact value before sending.
     ///
     ///         Only one active policy per flightId is allowed. A second call for
     ///         the same flightId reverts.
@@ -649,13 +651,22 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     }
 
     /// @notice Withdraw stablecoin held by the contract to the owner.
-    ///         Stablecoin is held as payout reserve; this releases any surplus
-    ///         beyond the converted value of outstanding CELO claims.
     ///
-    ///         NOTE: stablecoin reserve is tracked separately from CELO reserve.
-    ///         The owner is responsible for maintaining sufficient stablecoin
-    ///         balance to cover preferred stablecoin payouts; this function does
-    ///         not guard against over-withdrawing the stablecoin side.
+    ///         Solvency note — why there is no stablecoin reserve guard:
+    ///         Every claim is fully collateralised in CELO. insureFlight()
+    ///         adds the worst-case payout to reservedForClaims (CELO wei), and
+    ///         withdrawCelo() can never reduce the CELO balance below that
+    ///         reserve. claimInsurance() pays stablecoin only when a valid feed
+    ///         AND a sufficient stablecoin balance are both present, and
+    ///         otherwise falls back to native CELO — which is always available
+    ///         because of the CELO reserve. Stablecoin is therefore a
+    ///         *preferred*, never a *required*, payout path: draining it to zero
+    ///         cannot make any outstanding claim unpayable, only shift it to CELO.
+    ///
+    ///         Consequently this function intentionally guards only against
+    ///         withdrawing more than the contract holds — there is no separate
+    ///         stablecoin reserve to protect. Operators who want stablecoin
+    ///         (rather than CELO) payouts must keep the contract topped up.
     ///
     /// @param amount  Stablecoin units to withdraw.
     function withdrawStablecoin(uint256 amount) external onlyOwner nonReentrant {

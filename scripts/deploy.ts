@@ -34,11 +34,18 @@ import { getNetworkConfig } from "./config/networkConfig";
 function log(msg: string) { console.log(`\n[deploy] ${msg}`); }
 function sep()            { console.log("─".repeat(60)); }
 
+interface DeployResult {
+  /** Deployed contract address (ethers.ZeroAddress on dry-run). */
+  address: string;
+  /** Block the deployment tx was mined in, or null on dry-run / unavailable. */
+  blockNumber: number | null;
+}
+
 async function deployContract(
   name: string,
   args: unknown[],
   dryRun: boolean,
-): Promise<string> {
+): Promise<DeployResult> {
   const factory = await ethers.getContractFactory(name);
 
   if (dryRun) {
@@ -56,7 +63,7 @@ async function deployContract(
       console.log(`  ${name.padEnd(30)} gas estimate: (unavailable on dry-run with unresolved deps)`);
     }
     // Return ZeroAddress as a stand-in so downstream contracts can still estimate.
-    return ethers.ZeroAddress;
+    return { address: ethers.ZeroAddress, blockNumber: null };
   }
 
   const contract = await factory.deploy(...args);
@@ -64,8 +71,8 @@ async function deployContract(
   const addr = await contract.getAddress();
   const tx   = contract.deploymentTransaction()!;
   const rec  = await tx.wait();
-  console.log(`  ${name.padEnd(30)} → ${addr}  (gas used: ${rec!.gasUsed.toLocaleString()})`);
-  return addr;
+  console.log(`  ${name.padEnd(30)} → ${addr}  (gas used: ${rec!.gasUsed.toLocaleString()}, block: ${rec!.blockNumber})`);
+  return { address: addr, blockNumber: rec!.blockNumber };
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────
@@ -116,7 +123,7 @@ async function main() {
     }
     log("No Chainlink feed configured — deploying PriceFeedDouble (TEST ONLY)");
     // $0.50 with 8 decimals — placeholder for testnet/local
-    feedAddress = await deployContract("PriceFeedDouble", [50_000_000n, 8], dryRun);
+    feedAddress = (await deployContract("PriceFeedDouble", [50_000_000n, 8], dryRun)).address;
     testDoubleNote += "\n  ⚠️  PriceFeedDouble used — NOT suitable for mainnet.";
   }
 
@@ -128,13 +135,13 @@ async function main() {
       );
     }
     log("No stablecoin configured — deploying StablecoinDouble (TEST ONLY)");
-    stablecoinAddress = await deployContract("StablecoinDouble", ["cUSD", "cUSD", 18], dryRun);
+    stablecoinAddress = (await deployContract("StablecoinDouble", ["cUSD", "cUSD", 18], dryRun)).address;
     testDoubleNote += "\n  ⚠️  StablecoinDouble used — NOT suitable for mainnet.";
   }
 
   // ── 1. FlightOracle ───────────────────────────────────────────────────────
   log("1 / 5  FlightOracle");
-  const oracleAddress = await deployContract("FlightOracle", [deployer.address], dryRun);
+  const oracleAddress = (await deployContract("FlightOracle", [deployer.address], dryRun)).address;
 
   // Grant UPDATER_ROLE to the designated updater (may differ from deployer).
   if (!dryRun && updaterAddress !== deployer.address) {
@@ -147,15 +154,15 @@ async function main() {
 
   // ── 2. CommitRevealRandomness ──────────────────────────────────────────────
   log("2 / 5  CommitRevealRandomness");
-  const randomnessAddress = await deployContract(
+  const randomnessAddress = (await deployContract(
     "CommitRevealRandomness",
     [operatorAddress],
     dryRun,
-  );
+  )).address;
 
   // ── 3. InsuredFlightsAgency ────────────────────────────────────────────────
   log("3 / 5  InsuredFlightsAgency");
-  const ifaAddress = await deployContract(
+  const ifaDeploy = await deployContract(
     "InsuredFlightsAgency",
     [
       oracleAddress,
@@ -168,22 +175,26 @@ async function main() {
     ],
     dryRun,
   );
+  const ifaAddress = ifaDeploy.address;
+  // Captured so the backend indexer can start from the IFA deployment block
+  // (wired into the backend .env as INDEX_FROM_BLOCK) instead of genesis.
+  const ifaDeployBlock = ifaDeploy.blockNumber;
 
   // ── 4. LuckySpin ──────────────────────────────────────────────────────────
   log("4 / 5  LuckySpin");
-  const luckySpinAddress = await deployContract(
+  const luckySpinAddress = (await deployContract(
     "LuckySpin",
     [randomnessAddress, cfg.luckySpinStakeCap],
     dryRun,
-  );
+  )).address;
 
   // ── 5. BattleShip ─────────────────────────────────────────────────────────
   log("5 / 5  BattleShip");
-  const battleShipAddress = await deployContract(
+  const battleShipAddress = (await deployContract(
     "BattleShip",
     [randomnessAddress, cfg.battleShipStakeCap],
     dryRun,
-  );
+  )).address;
 
   // ── summary ───────────────────────────────────────────────────────────────
   sep();
@@ -194,6 +205,9 @@ async function main() {
     flightOracle:          oracleAddress,
     commitRevealRandomness: randomnessAddress,
     insuredFlightsAgency:  ifaAddress,
+    // Deployment block of InsuredFlightsAgency — copy into the backend .env as
+    // INDEX_FROM_BLOCK so the FlightInsured indexer backfills from here, not genesis.
+    insuredFlightsAgencyBlock: ifaDeployBlock !== null ? String(ifaDeployBlock) : "",
     luckySpin:             luckySpinAddress,
     battleShip:            battleShipAddress,
     celoUsdFeed:           feedAddress,
@@ -217,6 +231,9 @@ async function main() {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(outFile, JSON.stringify(summary, null, 2));
     log(`Addresses written to deployments/${networkName}.json`);
+    if (ifaDeployBlock !== null) {
+      log(`Set INDEX_FROM_BLOCK=${ifaDeployBlock} in the backend .env (IFA deploy block).`);
+    }
   }
 
   // ── celoscan verification reminder ────────────────────────────────────────

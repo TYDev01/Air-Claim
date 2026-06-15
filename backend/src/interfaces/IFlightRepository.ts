@@ -16,7 +16,11 @@ export type SubmittedStatus = OnChainFlightStatus;
 /** Matches the tracked_flight table. */
 export interface TrackedFlight {
   id: string;
-  /** bytes32 hex string — matches the contract's flightId (keccak256 of flightIata). */
+  /**
+   * bytes32 hex string — matches the contract's flightId. Canonical encoding:
+   * keccak256(abi.encodePacked(flightIata, "-", flightDate)). See
+   * scripts/config/flightId.ts (canonicalFlightId).
+   */
   flightId: string;
   flightIata: string;
   flightDate: string; // "YYYY-MM-DD" UTC
