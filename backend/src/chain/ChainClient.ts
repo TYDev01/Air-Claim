@@ -28,7 +28,7 @@ import {
   type Address,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { celo } from "viem/chains";
+import { celo, celoAlfajores, hardhat } from "viem/chains";
 
 import type { IChainClient, TxResult, OracleFlightRecord } from "../interfaces/IChainClient.js";
 import { OnChainFlightStatus } from "../interfaces/IChainClient.js";
@@ -56,14 +56,27 @@ interface ChainClientState {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Resolve the viem Chain object for a given chain ID. */
+/**
+ * Resolve the viem Chain object for a given chain ID.
+ *
+ * Mirrors the networks supported by scripts/config/networkConfig.ts and the
+ * deploy script so the backend can be rehearsed on Alfajores / a local fork
+ * before mainnet:
+ *   42220 — Celo mainnet
+ *   44787 — Alfajores testnet
+ *   31337 — Hardhat (local node or mainnet fork)
+ */
 function resolveChain(chainId: number): Chain {
-  if (chainId === 42220) return celo;
-  // For Alfajores or other networks, build a minimal chain descriptor.
-  // Add entries here as new networks are supported.
-  throw new Error(
-    `Unsupported chainId ${chainId}. Add it to resolveChain() in ChainClient.ts.`,
-  );
+  switch (chainId) {
+    case 42220: return celo;
+    case 44787: return celoAlfajores;
+    case 31337: return hardhat;
+    default:
+      throw new Error(
+        `Unsupported chainId ${chainId}. Supported: 42220 (celo), 44787 ` +
+        `(alfajores), 31337 (hardhat). Add it to resolveChain() in ChainClient.ts.`,
+      );
+  }
 }
 
 // ─── ChainClient ──────────────────────────────────────────────────────────────
