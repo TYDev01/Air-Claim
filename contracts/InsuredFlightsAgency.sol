@@ -425,9 +425,11 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     /// @notice Insure one or more passengers on a single flight.
     ///
     ///         Premium per passenger = 10 % of ticketPrice[i] + baseFee.
-    ///         The caller must send exactly the sum of all passenger premiums as
-    ///         msg.value (native CELO). Any excess is not refunded — callers
-    ///         should compute the exact amount off-chain using premiumFor().
+    ///         msg.value must equal the sum of all passenger premiums EXACTLY.
+    ///         Any other amount — too little OR too much — reverts with
+    ///         "IFA: wrong premium": the contract never keeps an overpayment and
+    ///         never partially fills, so there is no excess to refund. Integrators
+    ///         MUST call premiumFor() to compute the exact value before sending.
     ///
     ///         Only one active policy per flightId is allowed. A second call for
     ///         the same flightId reverts.
