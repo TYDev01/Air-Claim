@@ -23,6 +23,12 @@ jobs:
           node-version: 20
           cache: npm
 
+      # A transitive dependency (@zksync/contracts → era-contracts) is pinned as
+      # a git+ssh GitHub URL; runners have no SSH key, so rewrite to anonymous
+      # HTTPS before install or npm ci fails cloning it.
+      - name: Use HTTPS for GitHub git dependencies
+        run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+
       - name: Install root dependencies
         run: npm ci
 
