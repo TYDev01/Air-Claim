@@ -20,7 +20,12 @@ Read-only interface consumed by `InsuredFlightsAgency`.
 | `getStatus(bytes32)` | Convenience: current status enum |
 | `FlightStatusUpdated` event | Emitted on every authorised write |
 
-**Key:** `flightId` is `keccak256(abi.encodePacked(flightIdentifierString))` — callers must hash consistently.
+**Key:** `flightId` is `keccak256(abi.encodePacked(flightIata, "-", flightDate))`,
+where `flightDate` is the scheduled-departure UTC calendar date as `"YYYY-MM-DD"`.
+The date is part of the key so daily flights don't collide (one active policy per
+`flightId`). The canonical encoding lives in [`scripts/config/flightId.ts`](scripts/config/flightId.ts)
+(`canonicalFlightId`) — deploy fixtures, tests, the backend, and any front-end MUST
+use it identically.
 
 ---
 
@@ -179,7 +184,7 @@ All addresses live in `scripts/config/networkConfig.ts`, not in contract source.
 ## 5. Assumptions and open questions
 
 1. **Sequencer uptime feed:** No Chainlink L2 Sequencer Uptime Feed is currently published for Celo. Strict staleness checks (`updatedAt` freshness window) are the primary guard. If a sequencer feed is deployed before mainnet launch, `InsuredFlightsAgency` should integrate it — flag this for review before deploy.
-2. **`flightId` hashing:** All callers must apply `keccak256(abi.encodePacked(rawFlightId))` consistently. The deployment script and front-end must agree on the encoding.
+2. **`flightId` hashing:** Resolved. The canonical encoding is `keccak256(abi.encodePacked(flightIata, "-", flightDate))` (`flightDate` = scheduled-departure UTC date, `"YYYY-MM-DD"`), implemented once in [`scripts/config/flightId.ts`](scripts/config/flightId.ts). All callers — deploy script, tests, backend, front-end — use it identically. See §2 above.
 3. **Stablecoin decimals:** The stablecoin ERC-20 is treated as having 18 decimals (standard for cUSD). If a 6-decimal token (USDC) is injected, the scaling logic in `InsuredFlightsAgency` must account for this — implementation will read the stablecoin's `decimals()`.
 4. **Premium currency:** Premiums are collected in native CELO (`msg.value`). A future upgrade may accept stablecoin premiums — out of scope here.
 5. **Game operator:** `CommitRevealRandomness` requires a trusted operator to pre-commit before each game round. The off-chain operator infrastructure is outside the contract scope.
