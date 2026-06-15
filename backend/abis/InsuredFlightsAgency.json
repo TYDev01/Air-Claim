@@ -194,6 +194,24 @@
       },
       {
         "indexed": false,
+        "internalType": "string",
+        "name": "departure",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "arrival",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "flightDate",
+        "type": "uint64"
+      },
+      {
+        "indexed": false,
         "internalType": "address[]",
         "name": "passengers",
         "type": "address[]"

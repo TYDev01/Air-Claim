@@ -106,10 +106,19 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
     // Events
     // -------------------------------------------------------------------------
 
+    /// @dev The indexer derives tracked-flight metadata directly from this event,
+    ///      so departure/arrival/flightDate are emitted here (they are already
+    ///      stored in the Policy struct) to avoid a follow-up policyInfo() read
+    ///      per policy. Field names are the on-chain source of truth; the backend
+    ///      maps flightNumber→flightIata, departure→origin, arrival→destination,
+    ///      flightDate→scheduledDeparture.
     event FlightInsured(
         uint256 indexed policyId,
         bytes32 indexed flightId,
         string          flightNumber,
+        string          departure,
+        string          arrival,
+        uint64          flightDate,
         address[]       passengers,
         uint256         totalPremium
     );
@@ -496,7 +505,16 @@ contract InsuredFlightsAgency is Ownable, ReentrancyGuard, Pausable {
             passengersCopy[i] = passengers[i];
         }
 
-        emit FlightInsured(policyId, flightId, flightNumber, passengersCopy, totalPremium);
+        emit FlightInsured(
+            policyId,
+            flightId,
+            flightNumber,
+            departure,
+            arrival,
+            flightDate,
+            passengersCopy,
+            totalPremium
+        );
     }
 
     /// @notice Returns the exact premium a caller must send for a given set of

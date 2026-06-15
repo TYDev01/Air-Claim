@@ -20,16 +20,24 @@ import type { AppConfig } from "../config/schema.js";
 import type { Logger } from "../logger.js";
 
 // ─── FlightInsured event shape ────────────────────────────────────────────────
-// Decoded from the InsuredFlightsAgency ABI — field names must match the
-// Solidity event definition exactly.
+// Decoded from the InsuredFlightsAgency ABI — field names MUST match the
+// Solidity event definition exactly (see InsuredFlightsAgency.sol). The on-chain
+// field names are the source of truth; this backend maps them to its own domain
+// vocabulary in sync():
+//   flightNumber → flightIata
+//   departure    → originIata
+//   arrival      → destIata
+//   flightDate   → scheduledDepartureUtc
 
 interface FlightInsuredArgs {
-  flightId:             `0x${string}`;
-  flightIata:           string;
-  origin:               string;
-  destination:          string;
-  scheduledDeparture:   bigint;  // unix timestamp (seconds)
-  insured:              `0x${string}`;
+  policyId:     bigint;
+  flightId:     `0x${string}`;
+  flightNumber: string;
+  departure:    string;
+  arrival:      string;
+  flightDate:   bigint;  // unix timestamp (seconds) of scheduled departure
+  passengers:   readonly `0x${string}`[];
+  totalPremium: bigint;
 }
 
 // ─── FlightTracker ────────────────────────────────────────────────────────────
@@ -84,7 +92,7 @@ export class FlightTracker {
     const logs = await this.publicClient.getLogs({
       address:   this.ifa,
       event:     parseAbiItem(
-        "event FlightInsured(bytes32 indexed flightId, string flightIata, string origin, string destination, uint256 scheduledDeparture, address indexed insured)",
+        "event FlightInsured(uint256 indexed policyId, bytes32 indexed flightId, string flightNumber, string departure, string arrival, uint64 flightDate, address[] passengers, uint256 totalPremium)",
       ),
       fromBlock,
       toBlock,
@@ -106,7 +114,7 @@ export class FlightTracker {
         continue;
       }
       const args = entry.args as unknown as FlightInsuredArgs;
-      if (!args.flightId || !args.flightIata) {
+      if (!args.flightId || !args.flightNumber) {
         log.warn({ txHash: entry.transactionHash }, "FlightInsured log missing required fields — skipping");
         continue;
       }
@@ -175,7 +183,9 @@ export class FlightTracker {
 
       for (const args of events) {
         try {
-          const scheduledDepartureUtc = new Date(Number(args.scheduledDeparture) * 1_000);
+          // On-chain field names → backend domain vocabulary:
+          //   flightDate (uint64 unix seconds) → scheduledDepartureUtc
+          const scheduledDepartureUtc = new Date(Number(args.flightDate) * 1_000);
 
           // keeperEligibleAfter: departure + KEEPER_BUFFER_SECONDS as a
           // conservative stand-in when no arrival time is known from the event.
@@ -185,10 +195,10 @@ export class FlightTracker {
 
           const data: CreateTrackedFlight = {
             flightId:             args.flightId,
-            flightIata:           args.flightIata.toUpperCase(),
+            flightIata:           args.flightNumber.toUpperCase(), // flightNumber → flightIata
             flightDate:           scheduledDepartureUtc.toISOString().slice(0, 10),
-            originIata:           (args.origin ?? "").toUpperCase(),
-            destIata:             (args.destination ?? "").toUpperCase(),
+            originIata:           (args.departure ?? "").toUpperCase(), // departure → origin
+            destIata:             (args.arrival ?? "").toUpperCase(),   // arrival → destination
             scheduledDepartureUtc,
             scheduledArrivalUtc:  null, // not available in the event; updated by oracle later
             keeperEligibleAfter,
@@ -199,7 +209,7 @@ export class FlightTracker {
         } catch (err) {
           // A single bad event must not stop the batch — log and continue.
           this.logger.error(
-            { err, flightId: args.flightId, flightIata: args.flightIata },
+            { err, flightId: args.flightId, flightNumber: args.flightNumber },
             "Failed to upsert tracked flight — skipping event",
           );
         }

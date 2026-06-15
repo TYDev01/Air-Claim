@@ -231,7 +231,7 @@ describe("InsuredFlightsAgency — premium math", () => {
         )
       )
         .to.emit(ifa, "FlightInsured")
-        .withArgs(1n, FID, "ET309", [passenger1.address], premium);
+        .withArgs(1n, FID, "ET309", "ADD", "LHR", FLIGHT_DATE, [passenger1.address], premium);
     });
 
     it("auto-increments policyId on successive insure calls", async () => {
@@ -249,7 +249,7 @@ describe("InsuredFlightsAgency — premium math", () => {
         [passenger2.address], [ticket], { value: premium }
       );
       await expect(tx).to.emit(ifa, "FlightInsured").withArgs(
-        2n, FID2, "KQ101", [passenger2.address], premium
+        2n, FID2, "KQ101", "NBO", "LHR", FLIGHT_DATE2, [passenger2.address], premium
       );
     });
 
