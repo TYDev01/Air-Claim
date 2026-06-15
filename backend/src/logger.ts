@@ -53,22 +53,30 @@ export function createLogger(config: Pick<AppConfig, "LOG_LEVEL">): Logger {
     process.env["NODE_ENV"] !== "production" &&
     process.stdout.isTTY;
 
-  return pino({
+  const options: pino.LoggerOptions = {
     level: config.LOG_LEVEL,
     redact: {
       paths: REDACT_PATHS,
       censor: "[Redacted]",
     },
-    // Pretty-print in TTY dev sessions; emit raw JSON in production/Docker.
-    transport: isDev
-      ? { target: "pino-pretty", options: { colorize: true, translateTime: "SYS:standard" } }
-      : undefined,
     base: {
       service: "airclaim-oracle-backend",
       pid: process.pid,
     },
     timestamp: pino.stdTimeFunctions.isoTime,
-  });
+  };
+
+  // Pretty-print in TTY dev sessions; emit raw JSON in production/Docker.
+  // Set transport only when needed so the field is never assigned `undefined`
+  // (exactOptionalPropertyTypes forbids that).
+  if (isDev) {
+    options.transport = {
+      target: "pino-pretty",
+      options: { colorize: true, translateTime: "SYS:standard" },
+    };
+  }
+
+  return pino(options);
 }
 
 export type { Logger };
