@@ -138,7 +138,7 @@ describe.skipIf(!HAS_DB)("Flight lifecycle integration (real Postgres)", () => {
   beforeAll(async () => {
     prisma = new PrismaClient();
     await prisma.$connect();
-    repo = new PrismaRepository(prisma);
+    repo = new PrismaRepository(prisma, makeLogger());
   });
 
   afterAll(async () => {
