@@ -158,10 +158,10 @@ describe("loadConfig()", () => {
     expect(() => loadConfig()).toThrow();
   });
 
-  it("throws when MIN_UPDATER_BALANCE_WEI is missing", () => {
+  it("applies the default 0.1 CELO when MIN_UPDATER_BALANCE_WEI is missing", () => {
     Object.assign(process.env, validEnv());
     delete process.env["MIN_UPDATER_BALANCE_WEI"];
-    expect(() => loadConfig()).toThrow();
+    expect(loadConfig().MIN_UPDATER_BALANCE_WEI).toBe(100000000000000000n);
   });
 
   // ── Private key format validation ──────────────────────────────────────────

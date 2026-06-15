@@ -131,10 +131,11 @@ export const configSchema = z.object({
   STALENESS_ALERT_SECONDS: positiveInt(3600),
 
   /**
-   * Minimum CELO balance (in wei, as a string) of the updater wallet before a
-   * low-balance alert fires. Default: 0.1 CELO.
+   * Minimum CELO balance (in wei) of the updater wallet before a low-balance
+   * alert fires. Coerced to bigint so it can be compared directly against
+   * getUpdaterBalance(). Default: 0.1 CELO.
    */
-  MIN_UPDATER_BALANCE_WEI: z.string().default("100000000000000000"),
+  MIN_UPDATER_BALANCE_WEI: z.coerce.bigint().default(100000000000000000n),
 
   /**
    * HTTPS webhook URL (Slack / Discord incoming webhook, or custom).
