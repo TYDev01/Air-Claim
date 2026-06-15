@@ -83,8 +83,17 @@ export class Keeper {
     }
 
     if (alreadyClaimable) {
-      log.debug("Policy already claimable — skipping keeper call, marking terminal");
-      await this.repo.markTerminal(flight.flightId);
+      // The claim window is already open on-chain, so no checkFlightDelay is
+      // needed. Crucially we do NOT mark the flight terminal here: a flight that
+      // was Delayed (claimable) can still go on to land, and the oracle updater
+      // must be allowed to push that final Landed (or Cancelled) status. Terminal
+      // state is set by markSubmitted() when a terminal status is confirmed —
+      // "claim window open" and "stop polling" are deliberately decoupled.
+      //
+      // Record the keeper timestamp so this redundant read is throttled to once
+      // per cooldown instead of firing on every scheduler tick.
+      log.debug("Policy already claimable — skipping keeper call; oracle still finalises status");
+      await this.repo.markKeeperCalled(flight.flightId, new Date());
       return;
     }
 
