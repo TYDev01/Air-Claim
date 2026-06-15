@@ -23,6 +23,8 @@ import {
   type PublicClient,
   type WalletClient,
   type Chain,
+  type Transport,
+  type Account,
   type Abi,
   type Hash,
   type Address,
@@ -40,7 +42,9 @@ import { loadAbis } from "./abis.js";
 
 interface ChainClientState {
   publicClient:  PublicClient;
-  walletClient:  WalletClient;
+  // Concrete account+chain binding so writeContract() doesn't require chain/account
+  // to be passed on every call (the wide WalletClient type loses that binding).
+  walletClient:  WalletClient<Transport, Chain, Account>;
   updaterAddress: Address;
   flightOracleAbi: Abi;
   insuredFlightsAgencyAbi: Abi;
