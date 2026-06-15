@@ -54,6 +54,23 @@ interface ChainClientState {
   nonceLock: Promise<void>;
 }
 
+/**
+ * Decoded shape of InsuredFlightsAgency.policyInfo()'s PolicyView return struct.
+ * Mirrors the Solidity struct field-for-field (see InsuredFlightsAgency.sol).
+ * Note there is no `claimed` field — claim state is per-passenger, not per-policy.
+ */
+interface PolicyView {
+  policyId:       bigint;
+  flightId:       `0x${string}`;
+  flightNumber:   string;
+  departure:      string;
+  arrival:        string;
+  flightDate:     bigint;
+  claimable:      boolean;
+  exists:         boolean;
+  passengerCount: bigint;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -223,7 +240,7 @@ export class ChainClient implements IChainClient {
       abi:          this.s.insuredFlightsAgencyAbi,
       functionName: "policyInfo",
       args:         [flightId],
-    }) as { claimable: boolean; claimed: boolean };
+    }) as PolicyView;
 
     return raw.claimable;
   }
