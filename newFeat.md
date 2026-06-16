@@ -39,7 +39,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 - [x] `createWagmiConfig()` — build the wagmi config (chains + connectors + transports).
 - [x] `getDefaultChain()` — pick the active default chain from env.
 - [x] `importInsuredFlightsAgencyAbi()` — typed accessor for the IFA ABI.
-- [ ] `importFlightOracleAbi()` — typed accessor for the oracle ABI.
+- [x] `importFlightOracleAbi()` — typed accessor for the oracle ABI.
 
 ## Phase 1 — Core domain utils (lib)
 
@@ -110,3 +110,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 3. `createWagmiConfig()` — `frontend/src/lib/wagmi.ts`
 4. `getDefaultChain()` — `frontend/src/lib/chains.ts`
 5. `importInsuredFlightsAgencyAbi()` — `frontend/src/lib/abis.ts` (+ copied `src/abi/InsuredFlightsAgency.json`)
+6. `importFlightOracleAbi()` — `frontend/src/lib/abis.ts` (+ copied `src/abi/FlightOracle.json`)
