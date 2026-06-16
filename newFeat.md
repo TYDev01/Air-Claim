@@ -51,7 +51,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 - [x] `formatPayoutEstimate(ticketPriceWei)` — "up to 10% of ticket" estimate.
 - [x] `truncateAddress(addr)` — 0x1234…abcd.
 - [x] `formatFlightDate(ts)` — uint64 → human date.
-- [ ] `derivePolicyStatus(policyInfo, passengerInfo)` — Scheduled|Delayed|Claimed|Claimable.
+- [x] `derivePolicyStatus(policyInfo, passengerInfo)` — Scheduled|Delayed|Claimed|Claimable.
 
 ## Phase 2 — wagmi read hooks
 
@@ -119,3 +119,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 12. `formatPayoutEstimate(ticketPriceWei)` — `frontend/src/lib/money.ts` (+ tsconfig target → ES2020)
 13. `truncateAddress(addr)` — `frontend/src/lib/format.ts`
 14. `formatFlightDate(ts)` — `frontend/src/lib/format.ts`
+15. `derivePolicyStatus(policy, passenger)` — `frontend/src/lib/policyStatus.ts` (Phase 1 complete)
