@@ -49,7 +49,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 - [x] `formatCelo(wei)` — wei → display string.
 - [x] `parseCelo(input)` — display string → wei.
 - [x] `formatPayoutEstimate(ticketPriceWei)` — "up to 10% of ticket" estimate.
-- [ ] `truncateAddress(addr)` — 0x1234…abcd.
+- [x] `truncateAddress(addr)` — 0x1234…abcd.
 - [ ] `formatFlightDate(ts)` — uint64 → human date.
 - [ ] `derivePolicyStatus(policyInfo, passengerInfo)` — Scheduled|Delayed|Claimed|Claimable.
 
@@ -117,3 +117,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 10. `formatCelo(wei)` — `frontend/src/lib/money.ts`
 11. `parseCelo(input)` — `frontend/src/lib/money.ts`
 12. `formatPayoutEstimate(ticketPriceWei)` — `frontend/src/lib/money.ts` (+ tsconfig target → ES2020)
+13. `truncateAddress(addr)` — `frontend/src/lib/format.ts`
