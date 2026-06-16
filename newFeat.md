@@ -35,7 +35,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 ## Phase 0 — Web3 foundation (lib)
 
 - [x] `getContractAddresses(chainId)` — resolve addresses from deployments JSON.
-- [ ] `getSupportedChains()` — return the viem chains we support.
+- [x] `getSupportedChains()` — return the viem chains we support.
 - [ ] `createWagmiConfig()` — build the wagmi config (chains + connectors + transports).
 - [ ] `getDefaultChain()` — pick the active default chain from env.
 - [ ] `importInsuredFlightsAgencyAbi()` — typed accessor for the IFA ABI.
@@ -106,3 +106,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 (Each completed function gets a line here as we go, so we can track the ~900-commit cadence.)
 
 1. `getContractAddresses(chainId)` — `frontend/src/lib/contracts.ts`
+2. `getSupportedChains()` — `frontend/src/lib/chains.ts`
