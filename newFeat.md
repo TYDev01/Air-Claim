@@ -43,7 +43,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 
 ## Phase 1 — Core domain utils (lib)
 
-- [ ] `canonicalFlightId(iata, date)` — mirror of `scripts/config/flightId.ts` (viem).
+- [x] `canonicalFlightId(iata, date)` — mirror of `scripts/config/flightId.ts` (viem).
 - [ ] `assertIsoDate(date)` — strict YYYY-MM-DD guard.
 - [ ] `toFlightDateTimestamp(isoDateTime)` — scheduled-departure → uint64 unix.
 - [ ] `formatCelo(wei)` — wei → display string.
@@ -111,3 +111,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 4. `getDefaultChain()` — `frontend/src/lib/chains.ts`
 5. `importInsuredFlightsAgencyAbi()` — `frontend/src/lib/abis.ts` (+ copied `src/abi/InsuredFlightsAgency.json`)
 6. `importFlightOracleAbi()` — `frontend/src/lib/abis.ts` (+ copied `src/abi/FlightOracle.json`)
+7. `canonicalFlightId(iata, date)` — `frontend/src/lib/flightId.ts` (verified parity with ethers)
