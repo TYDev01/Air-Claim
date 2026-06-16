@@ -59,7 +59,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 - [x] `usePolicyInfo(flightId)` — read `policyInfo`.
 - [x] `usePassengerInfo(flightId, account)` — read `passengerInfo`.
 - [x] `usePolicyIdFor(flightId)` — read `policyIdFor`.
-- [ ] `useIsPaused()` — read paused state (graceful handling).
+- [x] `useIsPaused()` — read paused state (graceful handling).
 
 ## Phase 3 — wagmi write hooks
 
@@ -124,3 +124,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 17. `usePolicyInfo(flightId)` — `frontend/src/hooks/usePolicyInfo.ts`
 18. `usePassengerInfo(flightId, account)` — `frontend/src/hooks/usePassengerInfo.ts`
 19. `usePolicyIdFor(flightId)` — `frontend/src/hooks/usePolicyIdFor.ts`
+20. `useIsPaused()` — `frontend/src/hooks/useIsPaused.ts` (Phase 2 complete)
