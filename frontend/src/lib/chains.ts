@@ -20,3 +20,19 @@ import type { Chain } from "viem";
 export function getSupportedChains(): readonly [Chain, ...Chain[]] {
   return [celo, celoAlfajores, hardhat];
 }
+
+/**
+ * Resolve the default chain the UI should target.
+ *
+ * Reads `NEXT_PUBLIC_CHAIN_ID` (inlined at build time) and matches it against
+ * the supported chains. Falls back to Celo mainnet when the var is unset, blank,
+ * or names an unsupported chain — the UI always has a sane chain to point at.
+ *
+ * @returns The default viem `Chain`.
+ */
+export function getDefaultChain(): Chain {
+  const raw = process.env.NEXT_PUBLIC_CHAIN_ID;
+  const chainId = raw ? Number(raw) : undefined;
+  const match = getSupportedChains().find((chain) => chain.id === chainId);
+  return match ?? celo;
+}
