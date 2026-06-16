@@ -55,7 +55,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 
 ## Phase 2 — wagmi read hooks
 
-- [ ] `usePremiumFor(ticketPrices)` — read `premiumFor`.
+- [x] `usePremiumFor(ticketPrices)` — read `premiumFor`.
 - [ ] `usePolicyInfo(flightId)` — read `policyInfo`.
 - [ ] `usePassengerInfo(flightId, account)` — read `passengerInfo`.
 - [ ] `usePolicyIdFor(flightId)` — read `policyIdFor`.
@@ -120,3 +120,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 13. `truncateAddress(addr)` — `frontend/src/lib/format.ts`
 14. `formatFlightDate(ts)` — `frontend/src/lib/format.ts`
 15. `derivePolicyStatus(policy, passenger)` — `frontend/src/lib/policyStatus.ts` (Phase 1 complete)
+16. `usePremiumFor(ticketPrices)` — `frontend/src/hooks/usePremiumFor.ts`
