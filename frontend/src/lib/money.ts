@@ -41,3 +41,19 @@ export function parseCelo(input: string): bigint {
   }
   return parseEther(value);
 }
+
+/**
+ * Estimate the delay payout for a ticket: 10% of the ticket price.
+ *
+ * This mirrors the contract's payout rule (up to 10% of the claimant's ticket
+ * price). The currency is decided on-chain at claim time — cUSD when the price
+ * feed is healthy and the contract is funded, otherwise native CELO — so the UI
+ * should present this as an "up to" estimate and not assume a unit.
+ *
+ * @param ticketPriceWei  Ticket price in CELO wei.
+ * @param symbol          Optional unit to append, e.g. "CELO".
+ * @returns               Display string for 10% of the ticket price.
+ */
+export function formatPayoutEstimate(ticketPriceWei: bigint, symbol?: string): string {
+  return formatCelo(ticketPriceWei / 10n, symbol);
+}
