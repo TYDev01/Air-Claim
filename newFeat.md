@@ -47,7 +47,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 - [x] `assertIsoDate(date)` — strict YYYY-MM-DD guard.
 - [x] `toFlightDateTimestamp(isoDateTime)` — scheduled-departure → uint64 unix.
 - [x] `formatCelo(wei)` — wei → display string.
-- [ ] `parseCelo(input)` — display string → wei.
+- [x] `parseCelo(input)` — display string → wei.
 - [ ] `formatPayoutEstimate(ticketPriceWei)` — "up to 10% of ticket" estimate.
 - [ ] `truncateAddress(addr)` — 0x1234…abcd.
 - [ ] `formatFlightDate(ts)` — uint64 → human date.
@@ -115,3 +115,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 8. `assertIsoDate(date)` — `frontend/src/lib/dates.ts` (canonicalFlightId now reuses it)
 9. `toFlightDateTimestamp(isoDateTime)` — `frontend/src/lib/dates.ts`
 10. `formatCelo(wei)` — `frontend/src/lib/money.ts`
+11. `parseCelo(input)` — `frontend/src/lib/money.ts`
