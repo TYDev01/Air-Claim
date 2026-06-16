@@ -57,7 +57,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 
 - [x] `usePremiumFor(ticketPrices)` — read `premiumFor`.
 - [x] `usePolicyInfo(flightId)` — read `policyInfo`.
-- [ ] `usePassengerInfo(flightId, account)` — read `passengerInfo`.
+- [x] `usePassengerInfo(flightId, account)` — read `passengerInfo`.
 - [ ] `usePolicyIdFor(flightId)` — read `policyIdFor`.
 - [ ] `useIsPaused()` — read paused state (graceful handling).
 
@@ -122,3 +122,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 15. `derivePolicyStatus(policy, passenger)` — `frontend/src/lib/policyStatus.ts` (Phase 1 complete)
 16. `usePremiumFor(ticketPrices)` — `frontend/src/hooks/usePremiumFor.ts`
 17. `usePolicyInfo(flightId)` — `frontend/src/hooks/usePolicyInfo.ts`
+18. `usePassengerInfo(flightId, account)` — `frontend/src/hooks/usePassengerInfo.ts`
