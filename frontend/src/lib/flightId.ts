@@ -12,8 +12,7 @@
  */
 import { keccak256, toBytes } from "viem";
 
-/** Strict "YYYY-MM-DD" guard so a timestamp or locale string can't slip in. */
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+import { assertIsoDate } from "./dates";
 
 /**
  * Derive the canonical bytes32 flightId for a flight on a given UTC date.
@@ -27,11 +26,6 @@ export function canonicalFlightId(
   flightIata: string,
   flightDate: string,
 ): `0x${string}` {
-  if (!ISO_DATE.test(flightDate)) {
-    throw new Error(
-      `flightDate must be "YYYY-MM-DD" (UTC), got "${flightDate}". ` +
-        `Use the scheduled-departure calendar date, not a timestamp.`,
-    );
-  }
+  assertIsoDate(flightDate);
   return keccak256(toBytes(`${flightIata.toUpperCase()}-${flightDate}`));
 }
