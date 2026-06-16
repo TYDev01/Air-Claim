@@ -63,7 +63,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 
 ## Phase 3 — wagmi write hooks
 
-- [ ] `useInsureFlight()` — write `insureFlight` + wait for receipt.
+- [x] `useInsureFlight()` — write `insureFlight` + wait for receipt.
 - [ ] `useClaimInsurance()` — write `claimInsurance` + wait for receipt.
 
 ## Phase 4 — event hooks
@@ -125,3 +125,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 18. `usePassengerInfo(flightId, account)` — `frontend/src/hooks/usePassengerInfo.ts`
 19. `usePolicyIdFor(flightId)` — `frontend/src/hooks/usePolicyIdFor.ts`
 20. `useIsPaused()` — `frontend/src/hooks/useIsPaused.ts` (Phase 2 complete)
+21. `useInsureFlight()` — `frontend/src/hooks/useInsureFlight.ts`
