@@ -31,3 +31,25 @@ export function assertIsoDate(flightDate: string): void {
     throw new Error(`flightDate "${flightDate}" is not a valid calendar date.`);
   }
 }
+
+/**
+ * Convert a scheduled-departure datetime into the uint64 unix timestamp (in
+ * SECONDS) the contract takes as its `flightDate` argument.
+ *
+ * This is distinct from the calendar-date string used to derive `flightId`:
+ * here we need the precise scheduled-departure instant, which the contract
+ * requires to be in the future.
+ *
+ * @param isoDateTime  ISO-8601 datetime, e.g. "2026-06-15T14:30:00Z". A
+ *                     timezone offset is recommended; bare datetimes are parsed
+ *                     in the host's local zone per the Date spec.
+ * @returns            Unix timestamp in seconds as a bigint (uint64-ready).
+ * @throws             If the datetime cannot be parsed.
+ */
+export function toFlightDateTimestamp(isoDateTime: string): bigint {
+  const ms = new Date(isoDateTime).getTime();
+  if (Number.isNaN(ms)) {
+    throw new Error(`Could not parse scheduled-departure datetime "${isoDateTime}".`);
+  }
+  return BigInt(Math.floor(ms / 1000));
+}
