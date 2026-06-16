@@ -11,8 +11,10 @@
 // ─── On-chain enum mirrors ────────────────────────────────────────────────────
 
 /**
- * Mirrors the FlightStatus enum in FlightOracle.sol.
- * Values must match the contract exactly (0-indexed).
+ * Mirrors the canonical FlightStatus enum in contracts/interfaces/IFlightOracle.sol
+ * (the source of truth). Values must match the contract exactly (0-indexed), and
+ * the Prisma `OnChainStatus` enum in prisma/schema.prisma must mirror the same
+ * order. Append only — never reorder or insert in the middle.
  */
 export enum OnChainFlightStatus {
   Scheduled = 0,

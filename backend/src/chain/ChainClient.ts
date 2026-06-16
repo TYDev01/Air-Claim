@@ -262,7 +262,7 @@ export class ChainClient implements IChainClient {
     });
   }
 
-  // ── Write methods (implemented in subsequent commits) ─────────────────────
+  // ── Write methods ─────────────────────────────────────────────────────────
 
   /**
    * Calls FlightOracle.updateFlight(flightId, status, delayMinutes, source).

@@ -11,6 +11,11 @@ interface IFlightOracle {
     // -------------------------------------------------------------------------
 
     /// @notice Lifecycle states of a tracked flight.
+    /// @dev SOURCE OF TRUTH for the status ordering. Two off-chain copies must be
+    ///      kept in this exact order (the numeric value is sent on-chain):
+    ///        - backend/src/interfaces/IChainClient.ts  (enum OnChainFlightStatus)
+    ///        - backend/prisma/schema.prisma            (enum OnChainStatus)
+    ///      Never reorder or insert in the middle — append only.
     enum FlightStatus {
         Scheduled,  // 0 — flight has not yet departed
         Delayed,    // 1 — flight departed or is expected to depart late

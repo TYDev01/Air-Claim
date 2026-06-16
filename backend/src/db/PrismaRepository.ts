@@ -133,7 +133,7 @@ export class PrismaRepository implements IFlightRepository {
     this.logger.info("Database connection closed");
   }
 
-  // ── IFlightRepository methods (implemented in subsequent commits) ──────────
+  // ── IFlightRepository methods ─────────────────────────────────────────────
 
   /**
    * Insert a new tracked flight or update the scheduling fields if a row for

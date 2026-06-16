@@ -143,7 +143,7 @@ export class Scheduler {
     return POLL_PREFLIGHT_MS;
   }
 
-  // ── Tick handlers (implemented in subsequent commits) ─────────────────────
+  // ── Tick handlers ─────────────────────────────────────────────────────────
 
   /**
    * Run one oracle tick and self-reschedule the next one.

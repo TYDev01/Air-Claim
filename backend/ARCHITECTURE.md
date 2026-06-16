@@ -40,7 +40,7 @@ backend/
 │   ├── scheduler/
 │   │   └── Scheduler.ts             # node-cron wiring + adaptive cadence
 │   ├── http/
-│   │   └── HttpServer.ts            # Fastify: /healthz + /metrics
+│   │   └── server.ts                # Fastify: /healthz + /metrics
 │   └── main.ts                      # bootstrap: config → DB → chain → scheduler
 ├── prisma/
 │   └── schema.prisma

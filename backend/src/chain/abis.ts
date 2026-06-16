@@ -5,14 +5,11 @@
  * committed alongside the backend source. They must never be hand-written
  * or guessed — re-extract from artifacts whenever contracts change.
  *
- * Extraction command (run from project root):
- *   node -e "
- *     const fs = require('fs');
- *     const fo  = require('./artifacts/contracts/FlightOracle.sol/FlightOracle.json');
- *     const ifa = require('./artifacts/contracts/InsuredFlightsAgency.sol/InsuredFlightsAgency.json');
- *     fs.writeFileSync('./backend/abis/FlightOracle.json', JSON.stringify(fo.abi, null, 2));
- *     fs.writeFileSync('./backend/abis/InsuredFlightsAgency.json', JSON.stringify(ifa.abi, null, 2));
- *   "
+ * Re-extract from the project root:
+ *   npx hardhat compile && npm run abis:extract
+ *
+ * CI runs `npm run abis:check`, which fails if the committed copies here have
+ * drifted from a fresh compile (see scripts/extractAbis.js).
  */
 
 import { readFileSync } from "fs";
