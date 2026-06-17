@@ -69,7 +69,7 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 ## Phase 4 — event hooks
 
 - [x] `useWatchFlightInsured(onLog)` — watch `FlightInsured`.
-- [ ] `useWatchDelayConfirmed(onLog)` — watch `DelayConfirmed`.
+- [x] `useWatchDelayConfirmed(onLog)` — watch `DelayConfirmed`.
 - [ ] `useWatchInsuranceClaimed(onLog)` — watch `InsuranceClaimed`.
 
 ## Phase 5 — form / validation logic
@@ -128,3 +128,4 @@ Web3 layer to add: **wagmi v2 + viem + @tanstack/react-query** + a wallet connec
 21. `useInsureFlight()` — `frontend/src/hooks/useInsureFlight.ts`
 22. `useClaimInsurance()` — `frontend/src/hooks/useClaimInsurance.ts` (Phase 3 complete)
 23. `useWatchFlightInsured(onLogs)` — `frontend/src/hooks/useWatchFlightInsured.ts`
+24. `useWatchDelayConfirmed(onLogs)` — `frontend/src/hooks/useWatchDelayConfirmed.ts`
